@@ -1,0 +1,31 @@
+# --- credentials -------------------------------------------------------
+# Instagram session cookies live OUTSIDE this repo, at:
+#     ~/.config/instagram/cookies.txt   (dir 700, file 600)
+# These patterns exist so a stray copy can never be committed by accident.
+*cookies*.txt
+*cookie*.txt
+*.cookies
+cookies/
+*.netscape
+.env
+*.secret
+
+# --- scraped output ----------------------------------------------------
+out/
+*.mp4
+*.mp3
+*.m4a
+*.wav
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.info.json
+*.description
+*.jsonl
+
+# --- scratch -----------------------------------------------------------
+*.raw
+*.err
+*.html
+seen.txt
