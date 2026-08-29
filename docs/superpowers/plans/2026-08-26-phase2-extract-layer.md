@@ -1,5 +1,14 @@
 # Phase 2 — Extract Layer Implementation Plan
 
+> **Status (2026-08-30): Tasks 1-6 executed inline this session; checkboxes below were
+> never ticked mechanically. For the real final state — including two real design
+> deviations from what's written here (Caspi needed its own venv, not the single
+> `asr_local.py` in Task 4; the OCR gate in Task 6 needed a second `looks_garbled()`
+> check, not just the confidence threshold) — see `PLAN.md` §7's "Phase 2 — Extract
+> layer" section, which is the source of truth. This file is history, not a live
+> checklist. 2 of 3 done-criteria samples verified (English reel, Hebrew reel); the
+> Hebrew carousel is code-complete/unit-tested but blocked on a Gemini API quota.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the extract layer — local + Groq ASR (English/Hebrew, swappable checkpoint), local + Gemini OCR (Latin/CJK/Hebrew) — so an Instagram post's media on disk becomes `extracted/<shortcode>.json` text.
