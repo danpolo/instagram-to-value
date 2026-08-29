@@ -9,6 +9,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import secrets_lib
 import ocr_gemini
+import asr_qwen
+
+
+def test_should_reroute_to_caspi_on_hebrew():
+    assert asr_qwen.should_reroute_to_caspi("Hebrew") is True
+    assert asr_qwen.should_reroute_to_caspi("hebrew") is True  # case-insensitive
+
+
+def test_should_not_reroute_on_english():
+    assert asr_qwen.should_reroute_to_caspi("English") is False
+    assert asr_qwen.should_reroute_to_caspi(None) is False
 
 
 def test_load_secret_reads_key(tmp_path):
