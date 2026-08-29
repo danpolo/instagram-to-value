@@ -24,8 +24,20 @@ out/
 *.description
 *.jsonl
 
+# --- pipeline state/output (regenerable, see PLAN.md sec 6) ------------
+# extracted/, jobs/, staging/, pages/ are pipeline working state, not source
+# -- same reasoning as media/out being ignored above.
+extracted/
+jobs/
+staging/
+pages/
+*.local.json
+*.groq.json
+
 # --- scratch -----------------------------------------------------------
 *.raw
 *.err
 *.html
 seen.txt
+__pycache__/
+*.pyc

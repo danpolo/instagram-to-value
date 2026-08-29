@@ -13,7 +13,9 @@ import argparse
 import base64
 import json
 import mimetypes
+import re
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -42,7 +44,23 @@ def extract_text(interaction: dict) -> str:
     return ""
 
 
-def ocr(image_path, api_key, model=GEMINI_MODEL):
+RETRY_AFTER_RE = re.compile(r"retry in ([\d.]+)s", re.IGNORECASE)
+
+
+def parse_retry_after_seconds(error_text):
+    """Pure: extracts the suggested wait from a 429 body like 'Please retry in
+    49.88284644s.' Returns None if not present."""
+    m = RETRY_AFTER_RE.search(error_text)
+    return float(m.group(1)) if m else None
+
+
+def ocr(image_path, api_key, model=GEMINI_MODEL, max_attempts=4):
+    """Retries transient failures -- observed repeatedly in practice: 5xx
+    ('gemini-3.7-flash is currently experiencing high demand'), read timeouts,
+    and 429 (free-tier quota: 20 req/window) all recovered on retry. A 429
+    honors the API's own suggested wait time instead of guessing; other
+    retryable failures use short exponential backoff. Any other 4xx (bad key,
+    bad request) fails immediately -- retrying those would just waste time."""
     mime_type = mimetypes.guess_type(str(image_path))[0] or "image/jpeg"
     image_bytes = Path(image_path).read_bytes()
     payload = {
@@ -56,18 +74,32 @@ def ocr(image_path, api_key, model=GEMINI_MODEL):
             },
         ],
     }
-    response = requests.post(
-        GEMINI_URL,
-        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-        json=payload,
-        timeout=120,
-    )
-    if response.status_code != 200:
-        raise SystemExit(
-            f"[ocr_gemini] FATAL: Gemini API returned {response.status_code}: {response.text[:500]}"
-        )
-    text = extract_text(response.json())
-    return {"image": str(image_path), "engine": "gemini-3.7-flash", "text": text}
+    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        wait_seconds = 2 ** attempt  # default backoff: 2s, 4s, 8s
+        try:
+            response = requests.post(GEMINI_URL, headers=headers, json=payload, timeout=120)
+        except requests.exceptions.RequestException as e:
+            last_error = str(e)
+            print(f"[ocr_gemini] attempt {attempt}/{max_attempts} network error: {e}", file=sys.stderr)
+        else:
+            if response.status_code == 200:
+                text = extract_text(response.json())
+                return {"image": str(image_path), "engine": "gemini-3.7-flash", "text": text}
+            last_error = f"{response.status_code}: {response.text[:500]}"
+            if response.status_code == 429:
+                retry_after = parse_retry_after_seconds(response.text)
+                wait_seconds = retry_after + 1 if retry_after is not None else 60
+            elif response.status_code < 500:
+                raise SystemExit(f"[ocr_gemini] FATAL: Gemini API returned {last_error}")
+            print(f"[ocr_gemini] attempt {attempt}/{max_attempts} got {last_error}", file=sys.stderr)
+        if attempt < max_attempts:
+            print(f"[ocr_gemini] waiting {wait_seconds:.0f}s before retry", file=sys.stderr)
+            time.sleep(wait_seconds)
+
+    raise SystemExit(f"[ocr_gemini] FATAL: Gemini API failed after {max_attempts} attempts: {last_error}")
 
 
 def main():
