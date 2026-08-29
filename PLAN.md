@@ -369,10 +369,59 @@ original guess — see §9).
   track's 14/256 — see fact below. Flagged, not fixed (Phase 4 concern, not
   Phase 1).
 
-### Phase 2 — Extract layer
+### Phase 2 — Extract layer — ⚠️ 2/3 DONE 2026-08-30, blocked on Gemini quota
 ASR wrapper with swappable checkpoint (Qwen3 ↔ Caspi); Groq fallback; PP-OCRv6 + Gemini
 routing by script.
 *Done when:* an English reel, a Hebrew reel, and a Hebrew carousel all produce text.
+
+- ✅ **English reel (`DW1O6ZBEfDa`):** `python3 scripts/extract.py DW1O6ZBEfDa` → `extracted/DW1O6ZBEfDa.json`.
+  `engine_primary: qwen3-asr-1.7b`, `engine_fallback: groq-whisper-large-v3`,
+  reconciliation agreement 87.1% (53 disagreement spans flagged for Phase 4).
+  Full coherent transcript, matches Phase 0's known content (incl. the same
+  "Mila"/"Milla" Jovovich proper-noun miss).
+- ✅ **Hebrew reel (`DcblDAVNrgn`):** same command → `extracted/DcblDAVNrgn.json`.
+  `asr_qwen.py`'s 60s peek correctly detected Hebrew and rerouted to
+  `asr_caspi.py` (separate venv — see below); `engine_primary: caspi-1.7b`,
+  reconciliation agreement 68.7% against Groq (lower than English, expected —
+  Hebrew ASR is harder; Caspi's output also ran shorter than Groq's, likely
+  hitting `max_new_tokens`, worth revisiting if it matters in practice).
+  Fluent, correct Hebrew transcript, closely matching Groq's independent read.
+- ⚠️ **Hebrew carousel (`DcgAqIADbs2`):** code-complete and unit-tested, but
+  the full 5-slide run is **blocked on Gemini's free-tier quota** (`limit: 20`
+  request/window on `gemini-3.7-flash`) — exhausted partway through repeated
+  testing this session and still exhausted after the date rolled over past
+  midnight, so it isn't a simple per-minute or daily-UTC-reset limit; root
+  cause not fully diagnosed (possibly a longer rolling window, possibly the
+  key is shared with concurrent activity elsewhere on this machine). What's
+  verified: slide 1 (the real Hebrew headline slide) round-tripped correctly
+  end-to-end earlier this session — Gemini returned "הנוער הגאה חוזר לארון:
+  מה קרה בבתי הספר בישראל?", matching the actual on-image text exactly. The
+  escalation gate itself is unit-tested (`scripts/test_extract.py`, 23 tests).
+  **Next step:** re-run `python3 scripts/extract.py DcgAqIADbs2` once the
+  quota clears (check https://ai.dev/rate-limit), or switch the key to a
+  paid/higher-quota tier.
+
+**Design deviations found while building (see git log for detail):**
+- **Caspi needs its own venv.** Caspi's loader (the `qwen_asr` PyPI package)
+  hard-pins `transformers==4.57.6`, incompatible with the `transformers>=
+  5.13.0` that `Qwen3-ASR-1.7B-hf` needs — installing it into the `qwen-asr`
+  venv silently downgraded transformers and would have broken Phase 0's
+  validated setup. Caspi now lives in its own `~/.local/venvs/caspi-asr` venv;
+  `asr_qwen.py` (peek + full-if-non-Hebrew) and `asr_caspi.py` (Hebrew-only,
+  separate process) replace the single `asr_local.py` originally planned.
+- **Qwen3-ASR emits full language names** ("English", "Hebrew"), not ISO
+  codes — the original `language == 'he'` routing check would never have
+  fired. Now case-insensitive match on `"hebrew"`.
+- **The 0.70 mean-confidence OCR gate alone isn't reliable enough.** PP-OCRv6
+  forces Hebrew glyphs into its Latin/digit charset and can score confidently
+  wrong (0.78-0.80 on pure noise). Added a second gate, `looks_garbled()`
+  (>25% digit ratio in the recognized text) — real Latin/CJK text is nowhere
+  near that digit-heavy.
+- **`fetch.py`'s shortcode regex** only matched `instagram.com/p|reel/<code>`,
+  not `instagram.com/<user>/reel/<code>` (the form Instagram actually links).
+  Fixed.
+- Added retry-with-backoff to `ocr_gemini.py` for transient 5xx/timeouts and
+  429s (honoring the API's own suggested wait) — hit repeatedly in practice.
 
 **Design locked 2026-08-26** (resolves the two ambiguities in §0/§1 vs §0b.3):
 
