@@ -347,7 +347,7 @@ open it and do what it says.
 
 | Session | File | What it does |
 |---|---|---|
-| 1 | `SESSION-1-worker-durability.md` | Phase 5a: the three durability fixes (open items #7/#8/#9) + RAM gate, stale-open-item cleanup, then **launches the 49-job drain** (~23 h, unattended) |
+| 1 | `SESSION-1-worker-durability.md` | Phase 5a: the three durability fixes (open items #7/#8/#9) + RAM gate, stale-open-item cleanup, then **launches the 49-job drain** (~23 h, unattended) — ✅ **DONE 2026-08-30**, see the Phase 5a block below |
 | 2 | `SESSION-2-phase4a-interpret-stage.md` | Phase 4a: interpret stage, agent backends, registry framework, corpus handlers, approval loop. Runs while the drain does. Ends by briefing Dan on the pilot |
 | 3 | `SESSION-3-pilot.md` | Runs the drained corpus + Dan's hand-fed posts; produces the ranked `unsupported` backlog. Measures, does not build |
 | 4 | `SESSION-4-phase4b-handlers.md` | Phase 4b: the remaining ~19 handlers, prioritised by what the pilot actually asked for |
@@ -625,18 +625,25 @@ systemd user timer or `/loop` drains the queue. Weekly digest of what was create
 Daily: walk the watchlist (§4.5) — re-list each enrolled account's newest
 posts, enqueue anything past `newest_known_shortcode`, update the cursor.
 
-**Worker durability — required before the worker becomes long-lived.** Everything
-below is harmless today only because `worker.py` has never run outside `--once`.
-Turning on `while True` (`worker.py:155`) is what makes them real; do these in the
-same change, not after:
-- Wrap `note()` (`worker.py:87`) so a Telegram error degrades to a logged warning
-  instead of killing the run — and revisit `telegram_notify.send()`'s deliberate
-  fail-loud contract, which was written for a one-shot worker (open item #7).
-- Requeue orphans on startup: scan `jobs/running/` and move anything found back to
-  `queued/`, since a job there means the previous run died mid-flight (open item #8).
-  Jobs are idempotent by design (§6), so a replay is safe.
-- Check `free -h` available RAM before launching a job — §8 risk #1, ASR peaks at
-  6.9 GB of ~9 GB. Unattended draining of 49 queued jobs is where OOM actually bites.
+**Phase 5a — worker durability — ✅ DONE 2026-08-30.** Three fixes, landed
+together in `scripts/worker.py` since #7 and #8 share a root cause (open item
+#9). Plan: `docs/superpowers/plans/2026-08-30-phase5a-worker-durability.md`.
+- `drain_once()` now defers a queued job (logs a warning, leaves it in
+  `queued/`) instead of launching it when available RAM is below
+  `extract.py`'s existing 7.5GB `MIN_RAM_GB_FOR_ASR` — §8 risk #1.
+- `requeue_orphans(jobs_root)` scans `jobs/running/` once at worker startup
+  and moves anything found back to `queued/` — a job there means the
+  previous run died mid-flight. Jobs are idempotent by design (§6), so a
+  replay is safe (open item #8).
+- `safe_notify()`: `process_job`'s `note()` now swallows a raising notifier
+  and logs a warning instead of killing the job. `telegram_notify.send()`
+  keeps its own fail-loud contract unchanged — only the worker's use of it
+  degrades (open item #7).
+- 68 → 75 unit tests, all passing.
+- **Still deliberately not done:** turning on `while True` (`worker.py:155`)
+  — that's this section's daemon-loop work, Phase 5b (Session 5). This phase
+  only made `--once` safe to run unattended for a long drain, which is what
+  the 49-job backfill needed.
 
 ---
 
@@ -693,10 +700,10 @@ accelerate, librosa, soundfile, and the downloaded `Qwen/Qwen3-ASR-1.7B-hf` weig
 | # | Item | Owner | Note |
 |---|---|---|---|
 | 1 | ~~Phase 0 not started~~ | — | **Done**, see §7. fp16 primary, 6.9 GB peak RSS, 7.1× realtime. |
-| 2 | Groq API key | **you** | Needed to actually run `scripts/reconcile.py` for real. Everything else in Phase 0 ran without it. |
+| 2 | ~~Groq API key~~ | — | **Resolved.** The key works and `reconcile.py` has run for real repeatedly: Phase 2's English reel reconciled at 87.1% agreement (`DW1O6ZBEfDa`), Phase 3's live backfill job at 93.5% (`DbsDXkgJ_FB`, 556 vs 554 words). |
 | 3 | ~~Telegram bot token via @BotFather~~ | — | **Resolved.** `TELEGRAM_BOT_TOKEN`/`TELEGRAM_ALLOWED_CHAT_ID` were already in `secrets.env` by the time Phase 3 started. |
-| 4 | `discover.sh` is superseded | session | The no-auth search-index route (8 posts, 0.5% coverage). Keep as a no-cookie fallback; do not mistake it for the real enumerator. |
-| 5 | `~/.local/venvs/instaloader` unused | session | 29 MB. Installed only to prove the anonymous wall; safe to delete. |
+| 4 | `discover.sh` is superseded | session | **Verified 2026-08-30, note still accurate.** It's the search-engine-index anonymous route (`lite.duckduckgo.com` queries, `grep`s `instagram.com/(p\|reel)/` out of the results) — no auth, no enumeration API. Keep as a no-cookie fallback; do not mistake it for the real enumerator (`discover_account.py`). |
+| 5 | ~~`~/.local/venvs/instaloader` unused~~ | — | **Resolved 2026-08-30.** Deleted (29 MB, was only installed to prove the anonymous wall). |
 | 6 | ~~IG account flagged for automation~~ | — | **Resolved 2026-08-26.** Account cooled down, cookies re-exported (mode 600) — see facts below for what actually went into fixing this. Throttled scanning (`scripts/scan_carousel.py`) subsequently ran 26+ probes with no further auth issues. |
 | 7 | A `notify()` failure kills the worker mid-job | session | `worker.py:87` `note()` is unwrapped at lines 89/100/129, and `telegram_notify.send()` raises on error. Deliberate for `--once` (its docstring argues a worker that can't notify should be noticed); wrong for Phase 5's `while True` daemon, where a transient Telegram blip takes down a run meant to last days. **Fix in Phase 5.** |
 | 8 | Jobs orphaned in `jobs/running/` are never recovered | session | `drain_once` only iterates `list_queued` (`worker.py:133`); nothing ever reads `running/` back. Any interruption between `worker.py:140` and `:128` — OOM, reboot, or bug #7 — strands the job permanently. Compounds with risk #1: ASR peaks at 6.9 GB of ~9 GB, so mid-job OOM is expected, not hypothetical. **Fix in Phase 5.** |
