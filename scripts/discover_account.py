@@ -139,7 +139,12 @@ def enroll_if_new(username, pages_root=DEFAULT_PAGES_ROOT, jobs_root=DEFAULT_JOB
         return page
 
     posts = parse_gallery_dl_posts(result.stdout)
-    kept = select_backfill_shortcodes(posts, now, posts_cap, days_cap)
+    # select_backfill_shortcodes/should_stop_backfill compare against
+    # post_date, which gallery-dl reports timezone-naive -- drop tzinfo from
+    # `now` for this comparison only (the page record below still stores the
+    # real UTC-aware ISO timestamp). Found live: aware-minus-naive raises
+    # TypeError.
+    kept = select_backfill_shortcodes(posts, now.replace(tzinfo=None), posts_cap, days_cap)
 
     queued = []
     for post in kept:
