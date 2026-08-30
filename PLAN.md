@@ -292,6 +292,17 @@ Phase 1/2:**
 
 ## 5. Knowledge taxonomy
 
+> **⚠️ SUPERSEDED 2026-08-30 by
+> `docs/superpowers/specs/2026-08-30-phase4-interpret-staging-design.md`.**
+> These six types were tested against all 7 posts in `extracted/` and capture
+> **1 of 7**; the most common real outcome (creator demos a tool → install it)
+> has no row here at all. Phase 4 replaces the table with an extensible
+> **action registry**, and a proposal became a *list* of actions rather than one
+> classification. The six types survive as registry entries, and the
+> "default to the weakest artifact" principle below still holds. The
+> `reference` destination also changed — see the spec's "Where knowledge
+> actions install". Read the spec before using this table.
+
 | Type | Destination | Test for choosing it |
 |---|---|---|
 | skill | `~/.claude/skills/<name>/SKILL.md` | A repeatable *procedure* Claude should follow |
@@ -553,10 +564,33 @@ kicks off a capped, throttled backfill into the same job queue.
   and replying is one idempotency check and one file write, well under the
   2s bar.
 
-### Phase 4 — Interpret + staging gate
+### Phase 4 — Interpret + staging gate — 🔨 DESIGN DONE 2026-08-30, plan pending
 Claude Code reads extracted output, runs the tool resolver, classifies, writes a proposal
 to `staging/`, and sends you a summary with an approve/reject action.
 *Done when:* an approved proposal installs to the right path and a rejected one logs its reason.
+
+**Design spec:** `docs/superpowers/specs/2026-08-30-phase4-interpret-staging-design.md`
+(442 lines, committed `15f8d9f`). Read it before touching Phase 4 — it supersedes
+§5 and deviates from §4 and §2 in five recorded ways. Decisions locked with Dan:
+- A proposal is an **ordered list of actions**, not one classification.
+- **Pluggable agent backend** — headless `claude -p` (default) and headless
+  `codex exec`, switched from the bot with `/agent`. Both verified installed.
+- §4's **tier 3 (frame OCR) moves last** and re-fetches the mp4 lazily, so the
+  default run stays audio-only.
+- Knowledge installs to a **global on-demand skill**,
+  `~/.claude/skills/captured-knowledge/`; `~/.claude/rules/` stays reserved for
+  always-on constraints.
+- Job `origin` drives both notification style (immediate vs digest) and
+  auto-discard permission (backfill only, never a hand-sent URL).
+- **Exec-tier actions run on approval** (Dan's call), with the literal command
+  shown in the preview and every command recorded with its exit code.
+- An `unsupported` action type turns the pilot into a ranked backlog in
+  `logs/unsupported_actions.jsonl`.
+
+**Implementation is split into two plans** (per the spec's self-review):
+**4a** = stage end-to-end + registry framework + the handlers the 7-post corpus
+demands; **4b** = the long-tail handlers, informed by the pilot's `unsupported`
+log. Neither plan is written yet.
 
 **Why this is the next phase, concretely.** Phase 3's done-notification
 (`worker.py:129`) is a status line by design — `✅ <shortcode> done — audio, 2818
