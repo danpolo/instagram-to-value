@@ -22,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from discover_account import enroll_if_new
+from extract import get_available_ram_gb, check_ram_guard, MIN_RAM_GB_FOR_ASR
 from jobs_lib import list_queued, move_job
 from telegram_notify import send as notify
 
@@ -82,9 +83,23 @@ def run_subprocess(cmd, label):
     return ok, result.stdout, result.stderr
 
 
+def safe_notify(text, chat_id, notify_fn=notify):
+    """Send a progress notification, degrading to a logged warning instead of
+    raising (PLAN.md sec 9 open item #7). telegram_notify.send() itself keeps
+    its fail-loud contract -- that split is deliberate: send() stays honest
+    for anyone calling it directly, this wrapper is what the *worker*
+    specifically needs, because a transient Telegram blip must not kill a
+    23-hour unattended drain. Open item #9: the call before fetch is exactly
+    what orphaned jobs before this fix + requeue_orphans() landed."""
+    try:
+        notify_fn(text, chat_id=chat_id)
+    except Exception as e:
+        print(f"[worker] WARNING: notify failed, continuing: {e}", file=sys.stderr)
+
+
 def process_job(shortcode, url, chat_id, jobs_root, media_root, extracted_root, pages_root):
     def note(text):
-        notify(text, chat_id=chat_id)
+        safe_notify(text, chat_id)
 
     note(f"⏳ fetching {shortcode}")
     ok, _, err = run_subprocess(
@@ -129,7 +144,27 @@ def process_job(shortcode, url, chat_id, jobs_root, media_root, extracted_root, 
     note(f"✅ {shortcode} done — {extracted.get('media_type', '?')}, {text_len} chars{enrolled_note}")
 
 
-def drain_once(jobs_root, media_root, extracted_root, pages_root):
+def requeue_orphans(jobs_root):
+    """Scan jobs/running/ and move anything found back to queued/ -- a job
+    sitting there means the previous run died mid-flight (OOM, reboot, or a
+    notify error before bug #7's fix landed -- PLAN.md sec 9 open item #8).
+    Jobs are idempotent by design (PLAN.md sec 6), so a replay is safe.
+    Called once at worker startup, before the drain loop."""
+    jobs_root = Path(jobs_root)
+    running_dir = jobs_root / "running"
+    if not running_dir.exists():
+        return
+    for job_path in sorted(running_dir.glob("*.json")):
+        shortcode = job_path.stem
+        try:
+            move_job(shortcode, jobs_root, "running", "queued")
+            print(f"[worker] requeued orphaned job {shortcode}", file=sys.stderr)
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"[worker] WARNING: could not requeue orphaned job {job_path}: {e}", file=sys.stderr)
+
+
+def drain_once(jobs_root, media_root, extracted_root, pages_root,
+                available_ram_gb_fn=get_available_ram_gb, process_job_fn=process_job):
     for shortcode in list_queued(jobs_root):
         job_path = Path(jobs_root) / "queued" / f"{shortcode}.json"
         try:
@@ -137,9 +172,15 @@ def drain_once(jobs_root, media_root, extracted_root, pages_root):
         except (json.JSONDecodeError, OSError) as e:
             print(f"[worker] WARNING: unreadable job {job_path}: {e}", file=sys.stderr)
             continue
+        available_gb = available_ram_gb_fn()
+        if not check_ram_guard(available_gb):
+            print(f"[worker] deferring {shortcode}: only {available_gb:.1f}GB available, "
+                  f"need >={MIN_RAM_GB_FOR_ASR}GB (PLAN.md sec 8 risk 1) -- will retry next drain",
+                  file=sys.stderr)
+            continue
         move_job(shortcode, jobs_root, "queued", "running")
-        process_job(shortcode, job.get("url") or f"https://www.instagram.com/p/{shortcode}/",
-                    job.get("chat_id"), jobs_root, media_root, extracted_root, pages_root)
+        process_job_fn(shortcode, job.get("url") or f"https://www.instagram.com/p/{shortcode}/",
+                        job.get("chat_id"), jobs_root, media_root, extracted_root, pages_root)
 
 
 def main():
@@ -151,6 +192,8 @@ def main():
     ap.add_argument("--poll-interval", type=float, default=DEFAULT_POLL_INTERVAL)
     ap.add_argument("--once", action="store_true", help="Drain whatever is queued now and exit")
     args = ap.parse_args()
+
+    requeue_orphans(args.jobs_root)
 
     while True:
         drain_once(args.jobs_root, args.media_root, args.extracted_root, args.pages_root)

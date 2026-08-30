@@ -71,6 +71,64 @@ def test_list_queued_oldest_first(tmp_path):
     assert jobs_lib.list_queued(tmp_path) == ["FIRST", "SECOND"]
 
 
+def test_drain_once_defers_job_when_ram_low(tmp_path, capsys):
+    jobs_lib.write_job("ABC123", tmp_path, "queued", url="https://x/p/ABC123/")
+    calls = []
+    worker.drain_once(tmp_path, tmp_path / "media", tmp_path / "extracted", tmp_path / "pages",
+                       available_ram_gb_fn=lambda: 2.0, process_job_fn=lambda *a: calls.append(a))
+    assert calls == []
+    state, _ = jobs_lib.find_job("ABC123", tmp_path)
+    assert state == "queued"
+    assert "deferring" in capsys.readouterr().err
+
+
+def test_drain_once_proceeds_job_when_ram_ok(tmp_path):
+    jobs_lib.write_job("ABC123", tmp_path, "queued", url="https://x/p/ABC123/")
+    calls = []
+    worker.drain_once(tmp_path, tmp_path / "media", tmp_path / "extracted", tmp_path / "pages",
+                       available_ram_gb_fn=lambda: 10.0, process_job_fn=lambda *a: calls.append(a))
+    assert len(calls) == 1
+    assert calls[0][0] == "ABC123"
+    state, _ = jobs_lib.find_job("ABC123", tmp_path)
+    assert state == "running"
+
+
+def test_requeue_orphans_moves_running_to_queued(tmp_path):
+    jobs_lib.write_job("ABC123", tmp_path, "running", url="https://x/p/ABC123/")
+    worker.requeue_orphans(tmp_path)
+    state, _ = jobs_lib.find_job("ABC123", tmp_path)
+    assert state == "queued"
+
+
+def test_requeue_orphans_noop_when_running_missing(tmp_path):
+    worker.requeue_orphans(tmp_path)  # no running/ dir at all -- must not raise
+    assert jobs_lib.list_queued(tmp_path) == []
+
+
+def test_requeue_orphans_skips_unreadable_file(tmp_path, capsys):
+    running_dir = tmp_path / "running"
+    running_dir.mkdir()
+    (running_dir / "BROKEN.json").write_text("{not valid json")
+    worker.requeue_orphans(tmp_path)
+    assert (running_dir / "BROKEN.json").exists()  # left alone, not silently dropped
+    assert "WARNING" in capsys.readouterr().err
+
+
+def test_safe_notify_calls_through_on_success():
+    calls = []
+    def fake(text, chat_id=None):
+        calls.append((text, chat_id))
+    worker.safe_notify("hi", "123", notify_fn=fake)
+    assert calls == [("hi", "123")]
+
+
+def test_safe_notify_swallows_raising_notifier(capsys):
+    def boom(text, chat_id=None):
+        raise RuntimeError("network down")
+    worker.safe_notify("hello", "123", notify_fn=boom)
+    assert "WARNING" in capsys.readouterr().err
+
+
 # Trimmed from a real `gallery-dl https://www.instagram.com/networkchuck/posts/
 # --post-range 1-5 -j` run against @networkchuck during Phase 3 design
 # (2026-08-30) -- shortcodes/dates/owner_id are the actual values returned.

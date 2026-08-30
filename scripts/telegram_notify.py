@@ -29,8 +29,11 @@ async def _send_async(text, token, chat_id):
 
 def send(text, chat_id=None, secrets_path=DEFAULT_SECRETS):
     """Fire-and-wait send of one Telegram message from synchronous code.
-    Fails loudly rather than silently dropping a progress notification -- a
-    worker that can't notify should be noticed, not silently degraded."""
+    Fails loudly rather than silently dropping a progress notification --
+    this function's own contract is unchanged. worker.py's safe_notify()
+    wrapper is what degrades a failure to a warning for its own unattended
+    drain (PLAN.md sec 9 open item #7); a caller that wants fail-loud still
+    gets it by calling send() directly."""
     token = load_secret("TELEGRAM_BOT_TOKEN", secrets_path)
     if not token:
         raise SystemExit(f"[telegram_notify] FATAL: TELEGRAM_BOT_TOKEN not set in {secrets_path}")
