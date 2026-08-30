@@ -339,6 +339,27 @@ keeping versus going Groq-first.
 
 ## 7. Implementation phases
 
+### Remaining work — the session chain
+
+Phases 0–3 are done. Everything left is sequenced into five sessions, one
+handoff file each in `docs/superpowers/handoffs/`. Each file is self-contained:
+open it and do what it says.
+
+| Session | File | What it does |
+|---|---|---|
+| 1 | `SESSION-1-worker-durability.md` | Phase 5a: the three durability fixes (open items #7/#8/#9) + RAM gate, stale-open-item cleanup, then **launches the 49-job drain** (~23 h, unattended) |
+| 2 | `SESSION-2-phase4a-interpret-stage.md` | Phase 4a: interpret stage, agent backends, registry framework, corpus handlers, approval loop. Runs while the drain does. Ends by briefing Dan on the pilot |
+| 3 | `SESSION-3-pilot.md` | Runs the drained corpus + Dan's hand-fed posts; produces the ranked `unsupported` backlog. Measures, does not build |
+| 4 | `SESSION-4-phase4b-handlers.md` | Phase 4b: the remaining ~19 handlers, prioritised by what the pilot actually asked for |
+| 5 | `SESSION-5-phase5b-automation.md` | Phase 5b: daemon + timer, daily watchlist walk, weekly digest, and §4.5's two open gaps |
+
+**Why durability precedes the interpret stage:** extraction costs ~28 min of
+local ASR per reel and interpretation is one cheap agent call, so the expensive
+unattended work should start as early as it can safely run. A 23-hour drain is
+exactly what open items #7/#8 break on, which is why Session 1 comes first.
+Sessions 2–5 each plan and implement without an approval gate; the design
+decisions are already settled in the specs they reference.
+
 ### Phase 0 — Measure before building *(do this first)* — ✅ DONE 2026-08-25
 The local-model premise rested on two unmeasured numbers: peak RSS and WER. Measured.
 - Installed `Qwen/Qwen3-ASR-1.7B-hf` (official, transformers-native, `transformers>=5.13.0`)
