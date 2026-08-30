@@ -508,12 +508,46 @@ Net: the stage now survives losing either vendor entirely, and only fails when
   not the `instagram.com/<user>/reel/<code>` form Instagram actually links to (found
   while fetching the Hebrew reel above). Now `instagram\.com/(?:[^/]+/)?(?:p|reel|reels)/...`.
 
-### Phase 3 — Ingest bot
+### Phase 3 — Ingest bot — ⏳ CODE COMPLETE 2026-08-30, live phone-ack check pending
 Standalone Telegram bot, own token, allowlisted to your chat ID. URL → job file → ack.
 Progress notifications on stage transitions. Also triggers account
 discovery/enrollment per §4.5 — resolves the post's creator and, if new,
 kicks off a capped, throttled backfill into the same job queue.
 *Done when:* a URL sent from your phone produces a queued job and an ack within 2 s.
+
+- ✅ **Built:** `scripts/jobs_lib.py` (job-state helpers), `scripts/telegram_notify.py`
+  (send-only Telegram helper), `scripts/discover_account.py` (§4.5 account
+  discovery + capped backfill), `scripts/telegram_bot.py` (the ingest bot),
+  `scripts/worker.py` (queue drainer/orchestrator). Design spec:
+  `docs/superpowers/specs/2026-08-30-phase3-ingest-bot-design.md`. Plan:
+  `docs/superpowers/plans/2026-08-30-phase3-ingest-bot.md`. 21 new pure-logic
+  unit tests, all passing (68 total with Phase 2's, no regressions).
+- ✅ **`discover_account.py` verified live** against the real `@networkchuck`
+  account (`--posts-cap 3` for a bounded test run): `pages/networkchuck.json`
+  enrolled with `backfill.done: true`, 3 real posts queued into
+  `jobs/queued/`. Found and fixed a real bug in the process: `now` (UTC-aware)
+  minus gallery-dl's naive `post_date` strings raised `TypeError` on every
+  live call — the pure functions' unit tests used naive datetimes throughout
+  and never caught it.
+- ✅ **`worker.py --once` verified live** draining those 3 real jobs end to
+  end: fetch → extract → enroll → done, with real Telegram progress messages
+  sent at each stage. All 3 succeeded (0 failed): one image post (OCR, fast),
+  two audio reels (local ASR via `qwen3-asr-1.7b`, ~2-4 min CPU time each on
+  this 2-core machine — confirms Phase 0's realtime-factor budget holds under
+  real backfill load). Transcripts matched the real post content (e.g. the
+  termshark/tshark reel transcribed correctly). Found and fixed a second real
+  bug: `resolve_creator_username` preferred yt-dlp's `uploader_id`, which
+  turned out to be the numeric account ID on one post, not a username —
+  enrolled a bogus duplicate `pages/4440726664.json` for an already-tracked
+  account. Now prefers `channel` (the real lowercase handle) and lowercases
+  consistently so both fetch tracks key the same account the same way.
+- ⏳ **Open:** the bot (`scripts/telegram_bot.py`) is live and polling, but a
+  real message sent from Dan's phone — the plan's literal done-criterion —
+  hadn't arrived as of this session. Everything downstream of "a job lands in
+  `jobs/queued/`" is real-verified; only the actual phone→ack round trip is
+  still outstanding. No code reason to expect it not to work (`telegram_bot.py`
+  uses the exact same `Application`/`MessageHandler` pattern verified live in
+  `telegram_notify.py`'s successful send), but it hasn't been observed.
 
 ### Phase 4 — Interpret + staging gate
 Claude Code reads extracted output, runs the tool resolver, classifies, writes a proposal
@@ -581,7 +615,7 @@ accelerate, librosa, soundfile, and the downloaded `Qwen/Qwen3-ASR-1.7B-hf` weig
 |---|---|---|---|
 | 1 | ~~Phase 0 not started~~ | — | **Done**, see §7. fp16 primary, 6.9 GB peak RSS, 7.1× realtime. |
 | 2 | Groq API key | **you** | Needed to actually run `scripts/reconcile.py` for real. Everything else in Phase 0 ran without it. |
-| 3 | Telegram bot token via @BotFather | **you** | Phase 3 only. Not needed until then. |
+| 3 | ~~Telegram bot token via @BotFather~~ | — | **Resolved.** `TELEGRAM_BOT_TOKEN`/`TELEGRAM_ALLOWED_CHAT_ID` were already in `secrets.env` by the time Phase 3 started. |
 | 4 | `discover.sh` is superseded | session | The no-auth search-index route (8 posts, 0.5% coverage). Keep as a no-cookie fallback; do not mistake it for the real enumerator. |
 | 5 | `~/.local/venvs/instaloader` unused | session | 29 MB. Installed only to prove the anonymous wall; safe to delete. |
 | 6 | ~~IG account flagged for automation~~ | — | **Resolved 2026-08-26.** Account cooled down, cookies re-exported (mode 600) — see facts below for what actually went into fixing this. Throttled scanning (`scripts/scan_carousel.py`) subsequently ran 26+ probes with no further auth issues. |
