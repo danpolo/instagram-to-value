@@ -33,6 +33,8 @@ staging/
 pages/
 *.local.json
 *.groq.json
+*.ocrspace.json
+*.gemini.json
 
 # --- scratch -----------------------------------------------------------
 *.raw

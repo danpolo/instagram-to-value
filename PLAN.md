@@ -29,6 +29,17 @@ image → script detect → Latin/CJK ? PP-OCRv6 (local)
                       → PP-OCRv6 low confidence ? escalate to Gemini
 ```
 
+> **Superseded twice — see §7's Phase 2 design note and the 2026-08-30 entry.**
+> "Script detect" was collapsed into a single confidence gate (2026-08-26), and
+> the single Gemini escalation target became a two-vendor chain after the quota
+> wall (2026-08-30). Current shape:
+> ```
+> image → PP-OCRv6 (local) → confident & not garbled ? done
+>                          → else escalate: OCR.space Engine 3   (authoritative)
+>                                         + Gemini Flash rotation (corroborating)
+>                                         → reconcile.py diffs the two
+> ```
+
 ### Correction 2 — there is no GPU on this machine
 
 ```
@@ -165,8 +176,8 @@ seconds per item and removes the entire failure class.
 | Audio prep | ffmpeg `-ac 1 -ar 16000 -c:a pcm_s16le` | Already proven working | — |
 | ASR (en) | Qwen3-ASR-1.7B **fp16/Q8** | Native LID; beats Whisper-large-v3 | Groq (availability only) |
 | ASR (he) | Caspi-1.7B **fp16/Q8** | Same arch as above → one runtime | Groq (availability only) |
-| OCR (Latin/CJK) | PP-OCRv6 mobile/small | 5.2× CPU speedup w/ OpenVINO; tiny | Gemini 3.7 Flash |
-| OCR (Hebrew) | **Gemini 3.7 Flash** | PP-OCRv6 has no RTL support | Google Cloud Vision |
+| OCR (Latin/CJK) | PP-OCRv6 mobile/small | 5.2× CPU speedup w/ OpenVINO; tiny | OCR.space E3 → Gemini rotation |
+| OCR (Hebrew) | **OCR.space Engine 3** | PP-OCRv6 has no RTL support. Byte-exact on the Hebrew test carousel, ~2s/slide, and it does *not* invent text for illegible regions (§4) | **Gemini Flash rotation** (3.5→3.6→3.7→3.5-lite), which doubles as the reconciliation second opinion |
 | Interpret | Claude Code | — | — |
 
 **Simplification worth taking:** Caspi is a Qwen3-ASR fine-tune. Build **one** inference
@@ -369,7 +380,7 @@ original guess — see §9).
   track's 14/256 — see fact below. Flagged, not fixed (Phase 4 concern, not
   Phase 1).
 
-### Phase 2 — Extract layer — ⚠️ 2/3 DONE 2026-08-30, blocked on Gemini quota
+### Phase 2 — Extract layer — ✅ DONE 2026-08-30 (unblocked by a second OCR vendor)
 ASR wrapper with swappable checkpoint (Qwen3 ↔ Caspi); Groq fallback; PP-OCRv6 + Gemini
 routing by script.
 *Done when:* an English reel, a Hebrew reel, and a Hebrew carousel all produce text.
@@ -386,20 +397,41 @@ routing by script.
   Hebrew ASR is harder; Caspi's output also ran shorter than Groq's, likely
   hitting `max_new_tokens`, worth revisiting if it matters in practice).
   Fluent, correct Hebrew transcript, closely matching Groq's independent read.
-- ⚠️ **Hebrew carousel (`DcgAqIADbs2`):** code-complete and unit-tested, but
-  the full 5-slide run is **blocked on Gemini's free-tier quota** (`limit: 20`
-  request/window on `gemini-3.7-flash`) — exhausted partway through repeated
-  testing this session and still exhausted after the date rolled over past
-  midnight, so it isn't a simple per-minute or daily-UTC-reset limit; root
-  cause not fully diagnosed (possibly a longer rolling window, possibly the
-  key is shared with concurrent activity elsewhere on this machine). What's
-  verified: slide 1 (the real Hebrew headline slide) round-tripped correctly
-  end-to-end earlier this session — Gemini returned "הנוער הגאה חוזר לארון:
-  מה קרה בבתי הספר בישראל?", matching the actual on-image text exactly. The
-  escalation gate itself is unit-tested (`scripts/test_extract.py`, 23 tests).
-  **Next step:** re-run `python3 scripts/extract.py DcgAqIADbs2` once the
-  quota clears (check https://ai.dev/rate-limit), or switch the key to a
-  paid/higher-quota tier.
+- ✅ **Hebrew carousel (`DcgAqIADbs2`):** `python3 scripts/extract.py DcgAqIADbs2`
+  → `extracted/DcgAqIADbs2.json`. All **5 slides in 1m40s** (PP-OCRv6 dominates
+  the wall clock; the two API calls are ~2s and ~9s per slide). PP-OCRv6
+  escalated on every slide as designed (mean confidence 0.58–0.80, all either
+  below the 0.70 gate or caught by `looks_garbled`), each slide then read by
+  **OCR.space Engine 3** (authoritative) and **gemini-3.5-flash**
+  (corroborating), and the two diffed by `reconcile.py`.
+  **Cross-engine agreement: 100% on slides 02/03/04, 87.5% on 01, 80.2% on 05.**
+  - Every disagreement span falls in the *blurry background signage*, not the
+    headline/body text — which is exactly the design intent. On slide 01
+    Gemini added a distant shop sign (`"מספרה כלבו"`) that OCR.space declined
+    to guess at; on slide 05 OCR.space read protest placards as the fragments
+    it could actually see (`"מוקרטיה אדמ קדמיה"`) while Gemini confidently
+    completed them into `"דמוקרטיה או מרד / דיקטטורה או מרד"`.
+  - The single body-text disagreement in the whole carousel was one definite
+    article — `"השתקפות"` vs `"ההשתקפות"` — caught by reconciliation.
+  - This is §0b.3's dual-engine argument demonstrated for OCR: two independent
+    engines agreeing exactly on the content that matters, and disagreeing
+    precisely where the image is genuinely unreliable. Phase 4 gets those
+    spans flagged instead of a smooth, confident, partly-invented transcript.
+  - Unit tests: `scripts/test_extract.py`, **47 tests** (was 23).
+
+**Blocker resolved (2026-08-30).** The original block was diagnosed as "the
+Gemini key is out of quota." It was actually **one model** being out of quota —
+free-tier limits are metered per model family (see §9's 2026-08-30 facts). Two
+independent fixes, both live:
+1. `ocr_ocrspace.py` — **OCR.space Engine 3** is now the escalation primary.
+   2,500 Engine-3 requests/month free (~83/day vs this pipeline's ~5), email-only
+   signup, byte-exact on the Hebrew test carousel, and it doesn't hallucinate.
+2. `ocr_gemini.py` — **rotates across Gemini model families** on 429/5xx instead
+   of sleeping out the window, so one exhausted model no longer stops the run.
+
+Net: the stage now survives losing either vendor entirely, and only fails when
+*both* fail. `OCRSPACE_API_KEY` joins `GROQ_API_KEY`/`GEMINI_API_KEY` in
+`~/.config/instagram-to-value/secrets.env`.
 
 **Design deviations found while building (see git log for detail):**
 - **Caspi needs its own venv.** Caspi's loader (the `qwen_asr` PyPI package)
@@ -428,6 +460,10 @@ routing by script.
 - **Reconciliation policy resolved:** §0b.3 ("transcribe twice and reconcile, cost is
   trivial") wins over the §1 Stage-3 diagram's "Groq only on failure" reading. Every
   audio job runs local ASR **and** Groq, always, and `reconcile.py` diffs them.
+  **Extended to OCR 2026-08-30:** the same argument is about having two engines,
+  not about audio. Every *escalated* slide now runs OCR.space **and** Gemini and
+  diffs them. It only applies to escalated slides — a confident PP-OCRv6 read
+  has nothing to reconcile against and shouldn't spend API quota.
 - **"Script detect" (§0 Correction 1) isn't literally buildable** — you can't classify
   an image's script without OCR'ing it, which is the thing being routed. Collapsed into
   one rule instead of two branches: **always run PP-OCRv6 first; escalate to Gemini 3.7
@@ -448,13 +484,20 @@ routing by script.
   - `scripts/asr_groq.py` — new; calls Groq Whisper Large V3, reads `GROQ_API_KEY`
     from `~/.config/instagram-to-value/secrets.env` (mode 600, outside repo, same
     pattern as the IG cookies).
-  - `scripts/ocr.py` — new; PP-OCRv6 primary, Gemini 3.7 Flash escalation per the
-    collapsed rule above, reads `GEMINI_API_KEY` from the same secrets file.
+  - `scripts/ocr_local.py` — PP-OCRv6 first pass (built in its own venv, not the
+    single `ocr.py` originally planned).
+  - `scripts/ocr_ocrspace.py` — **added 2026-08-30**; OCR.space Engine 3, the
+    escalation primary. Reads `OCRSPACE_API_KEY` from the same secrets file.
+  - `scripts/ocr_gemini.py` — Gemini escalation secondary *and* reconciliation
+    second opinion, rotating across model families. Reads `GEMINI_API_KEY`.
   - `scripts/reconcile.py` — already built (Phase 0), reused as-is.
 - **`extracted/<shortcode>.json` schema** unifies transcript/OCR under one shape:
   `text`, `language`, `engine_primary`, `engine_fallback`, `confidence`,
   `engine_seconds`, `reconciliation` (audio jobs), `slides` (per-slide OCR array, in
-  order, for carousels).
+  order, for carousels). **Added 2026-08-30:** each escalated slide also carries
+  `engine_secondary` (the corroborating OCR engine, or `null` when only one was
+  reachable) and its own per-slide `reconciliation` — so OCR jobs now carry the
+  same dual-engine evidence audio jobs already did.
 - **Test samples sourced and fetched this session** (§9 has the fetch summaries):
   - English reel: `DW1O6ZBEfDa` (already on disk from Phase 0/1)
   - Hebrew reel: `DcblDAVNrgn` — @pnaiplus, Hebrew-language podcast interview
@@ -497,6 +540,17 @@ posts, enqueue anything past `newest_known_shortcode`, update the cursor.
 5. **Hebrew OCR is API-only**, so Hebrew image posts leave the machine. If that is
    unacceptable on privacy grounds, the honest answer is that no good local Hebrew OCR
    option exists today and those posts should be handled manually.
+   **Updated 2026-08-30:** still API-only, but no longer *single-vendor* — the
+   pipeline now runs two independent providers (OCR.space, Gemini) and degrades
+   to either one alone, so a single provider's quota wall can no longer block
+   the stage the way it blocked Phase 2. The local search was re-run and closed
+   negative: EasyOCR has no Hebrew at all (86 languages; RTL = ar/fa/ug/ur only,
+   verified by installing it), Surya v2 is now VLM-based and wants
+   vllm/llama.cpp, and no local VLM fits this box anyway — Qwen3-ASR fp16
+   already peaks at 6.9 GB of ~9 GB available on 2 cores. Tesseract `heb`
+   (92–96% on clean modern print) remains the only real offline floor and is
+   *not* installed; it is the fallback of last resort if both APIs are ever
+   unacceptable, at a meaningful accuracy cost.
 
 ---
 
@@ -551,6 +605,56 @@ accelerate, librosa, soundfile, and the downloaded `Qwen/Qwen3-ASR-1.7B-hf` weig
 - **gallery-dl rewrites the cookie jar after every run** — it is mutable state, not a
   static credential.
 - `gallery-dl --print-to-file` silently emits nothing under `--simulate`.
+
+### Facts established 2026-08-30 (Phase 2 OCR-vendor session)
+
+- **Gemini's free tier meters quota per model family, not per key.** This is
+  the root cause of the Phase 2 block, and it was misdiagnosed as "the key is
+  out of quota." Verified with one key inside a single minute:
+  `gemini-3.7-flash` returned 429 while `3.6-flash`, `3.5-flash`,
+  `3.5-flash-lite`, `3.1-flash-lite`, `3-flash-preview`, `2.5-flash` and
+  `2.5-flash-lite` all returned 200 on the same image. The carousel was never
+  out of *Gemini* quota — only out of one model's. `ocr_gemini.py` now rotates
+  families on 429/5xx instead of sleeping out the window.
+- **Not all Gemini vision tiers are safe for OCR, and the failure is silent.**
+  Measured against the known-good slide-1 headline: `3.5-flash` and
+  `3.6-flash` were exact; `3.1-flash-lite` and `2.5-flash-lite` dropped words
+  (`"מה קרה בתי הספר"` for `"בבתי"`); `2.5-flash` invented an entire caption
+  for blurry background signage that isn't in the image; `gemma-4-31b-it`
+  leaked raw chain-of-thought instead of a transcript. `3.5-flash-lite` is
+  *unstable* — exact via `:generateContent`, dropped a letter via
+  `/interactions` on the same image — so it is last in the rotation, and
+  everything ≤3.1 is excluded. A confidently-wrong transcript is worse than a
+  429 (§4).
+- **OCR.space Engine 3 reads Hebrew better than the VLMs do, for this content.**
+  Byte-exact on the slide-1 headline, ~2s/slide, and it transcribes illegible
+  regions literally (fragments of real protest-sign text) rather than
+  smoothing them into a plausible sentence. It also preserved spellings
+  `3.5-flash-lite` silently normalized away (`אווירה`→`אוירה`,
+  `הנתונים האלה`→`הנתונים אלה`). Now the escalation primary.
+- **Engine 3 is the only OCR.space engine that does Hebrew.** Engine 2 rejects
+  it outright: `E201: Value for parameter 'language' is invalid`. Engine 3 is
+  also the scarcer free quota (2,500/month vs 25,000 overall), so it runs only
+  on escalation, never as a first pass.
+- **Engine 3's language auto-detect is byte-identical to an explicit
+  `language=heb`** on all 5 slides, so the wrapper defaults to auto-detect —
+  the escalation gate fires for any low-confidence image, not only Hebrew.
+- **Engine 3 wraps *some* responses in `--- OCR Start ---` / `--- OCR End ---`
+  markers** — present on slides 04/05 of `DcgAqIADbs2`, absent on 01–03. Strip
+  unconditionally; don't branch on it.
+- **No local Hebrew OCR option exists for this machine — re-checked, still
+  negative.** EasyOCR does not support Hebrew at all (86 languages; RTL is
+  `ar/fa/ug/ur` only — verified by installing it, not by reading docs).
+  Surya v2 is now VLM-based and wants vllm/llama.cpp. No local VLM fits
+  anyway: Qwen3-ASR fp16 already peaks at 6.9 GB of ~9 GB available on 2
+  cores. Tesseract `heb` (92–96% on clean modern print) is the only real
+  offline floor and is not installed.
+- **The 1 MB free-tier upload cap is not currently binding but is guarded
+  anyway** — the largest image on disk is 422 KB and zero exceed 1 MB, but
+  `ocr_ocrspace.py` downscales to 1080px wide (Instagram's own slide width)
+  via the already-installed static ffmpeg rather than adding Pillow, which
+  system Python doesn't have. Verified against a synthetic 1,240 KB image:
+  downscaled and still byte-exact.
 
 ### Facts established 2026-08-25 (Phase 1 session)
 

@@ -3,8 +3,9 @@
 Shells out to each engine's own venv Python -- torch/transformers (Qwen3-ASR)
 in the qwen-asr venv, qwen_asr package (Caspi) in its own caspi-asr venv
 (hard-pins transformers==4.57.6, incompatible with qwen-asr's transformers>=
-5.13.0 -- see asr_caspi.py), paddleocr in its own venv, the two REST wrappers
-under system Python. Sidesteps dependency conflicts between these, matches
+5.13.0 -- see asr_caspi.py), paddleocr in its own venv, the three REST wrappers
+(asr_groq, ocr_ocrspace, ocr_gemini) under system Python. Sidesteps dependency
+conflicts between these, matches
 the existing "each heavy dependency gets its own venv" pattern (yt-dlp,
 gallery-dl, qwen-asr). See PLAN.md sec 7's Phase 2 design note for the full
 schema/routing rationale.
@@ -70,7 +71,7 @@ def looks_garbled(texts, digit_ratio_threshold=GARBLED_DIGIT_RATIO_THRESHOLD):
     return (digits / alnum) > digit_ratio_threshold
 
 
-def needs_gemini_escalation(texts, scores, threshold=OCR_CONFIDENCE_THRESHOLD):
+def needs_escalation(texts, scores, threshold=OCR_CONFIDENCE_THRESHOLD):
     """Pure: collapses PLAN.md sec 0 Correction 1's two-branch script-detect
     diagram into one rule. Escalates when PP-OCRv6 found nothing, found
     something but isn't confident, or found something that scores confident
@@ -82,6 +83,39 @@ def needs_gemini_escalation(texts, scores, threshold=OCR_CONFIDENCE_THRESHOLD):
     if mean_score < threshold:
         return True
     return looks_garbled(texts)
+
+
+def has_text(result):
+    """Pure: did this engine actually return something to use? A successful
+    call that recognized nothing is not the same as a failed call, but it is
+    equally useless as the authoritative read."""
+    return result is not None and bool((result.get("text") or "").strip())
+
+
+def choose_escalation(ocrspace, gemini):
+    """Pure: (authoritative, corroborating) from the two escalation engines,
+    either of which may be None if it failed or was out of quota.
+
+    OCR.space leads when it found text: measured byte-exact against the
+    known-good Hebrew headline, and it transcribes blurry regions literally
+    instead of inventing a plausible caption the way some Gemini tiers did --
+    the behaviour sec 4's confidence gate actually wants. Gemini is both the
+    fallback *and*, when both found text, the independent second read that
+    reconcile.py diffs (sec 0b.3's dual-engine argument, applied to OCR).
+
+    An engine that succeeded but recognized nothing is demoted rather than
+    trusted: a real transcript from the other engine beats an empty one, and
+    reconciling against an empty side would just report 0% agreement noise.
+    Only when neither found text does an empty result stand -- that is the
+    legitimate "this slide has no text" answer, not a failure.
+
+    Returning rather than raising on total failure keeps the decision pure;
+    the caller is what fails loudly."""
+    if has_text(ocrspace):
+        return ocrspace, (gemini if has_text(gemini) else None)
+    if has_text(gemini):
+        return gemini, None
+    return (ocrspace or gemini), None
 
 
 def detect_media_type(media_dir: Path, shortcode: str):
@@ -111,6 +145,28 @@ def run_json_subprocess(cmd):
     if result.returncode != 0:
         raise SystemExit(f"[extract] FATAL: {cmd[1]} failed:\n{result.stderr[-2000:]}")
     return json.loads(result.stdout)
+
+
+def try_json_subprocess(cmd):
+    """Best-effort run_json_subprocess: returns None instead of exiting.
+
+    Used only for the two escalation OCR engines, where a single provider being
+    down or out of quota must NOT kill the run -- being able to lose one
+    provider and keep going is the entire point of having two (the Gemini quota
+    wall that blocked Phase 2 on 2026-08-30). Every other stage stays fail-loud.
+    """
+    print(f"[extract] $ {' '.join(str(c) for c in cmd)}", file=sys.stderr)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"[extract] WARNING: {Path(cmd[1]).name} failed, continuing without it:\n"
+              f"{result.stderr[-800:]}", file=sys.stderr)
+        return None
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        print(f"[extract] WARNING: {Path(cmd[1]).name} returned unparseable JSON: {e}",
+              file=sys.stderr)
+        return None
 
 
 def extract_audio(shortcode, media_dir):
@@ -151,6 +207,58 @@ def extract_audio(shortcode, media_dir):
     )
 
 
+def escalate_slide(slide, media_dir):
+    """Run both escalation OCR engines on one slide and reconcile them.
+
+    OCR.space Engine 3 is the authoritative read; Gemini (rotating across model
+    families) is the corroborating one. Both are best-effort: losing either to
+    a quota wall degrades the result rather than failing the run -- being able
+    to lose a provider and keep going is the whole point of having two.
+
+    Only both engines *failing to respond* is fatal. Both responding and
+    finding no text is a different thing entirely -- that is a legitimate
+    "this slide carries no text" answer (see choose_escalation), and it is
+    recorded, not raised on.
+
+    Sidecars are written only when both engines produced text, which is
+    exactly when choose_escalation returns a non-None corroborating read -- so
+    the .ocrspace/.gemini filenames below always match their contents.
+    """
+    ocrspace = try_json_subprocess(
+        [sys.executable, str(REPO_ROOT / "scripts" / "ocr_ocrspace.py"), str(slide)]
+    )
+    gemini = try_json_subprocess(
+        [sys.executable, str(REPO_ROOT / "scripts" / "ocr_gemini.py"), str(slide)]
+    )
+
+    authoritative, corroborating = choose_escalation(ocrspace, gemini)
+    if authoritative is None:
+        raise SystemExit(
+            f"[extract] FATAL: every escalation OCR engine failed on {slide.name}. "
+            "Check OCRSPACE_API_KEY / GEMINI_API_KEY and quota."
+        )
+
+    record = {
+        "text": authoritative["text"],
+        "engine_fallback": authoritative["engine"],
+        "engine_secondary": corroborating["engine"] if corroborating else None,
+    }
+
+    if corroborating is not None:
+        # Named by engine, matching the audio path's <shortcode>.local/.groq.json.
+        a_path = media_dir / f"{slide.stem}.ocrspace.json"
+        b_path = media_dir / f"{slide.stem}.gemini.json"
+        a_path.write_text(json.dumps(authoritative, ensure_ascii=False))
+        b_path.write_text(json.dumps(corroborating, ensure_ascii=False))
+        record["reconciliation"] = run_json_subprocess([
+            sys.executable, str(REPO_ROOT / "scripts" / "reconcile.py"),
+            str(a_path), str(b_path),
+            "--label-a", "ocrspace", "--label-b", "gemini",
+        ])
+
+    return record
+
+
 def extract_image(shortcode, media_dir):
     slides = sorted(media_dir.glob(f"{shortcode}_*.jpg"))
     if not slides:
@@ -161,19 +269,20 @@ def extract_image(shortcode, media_dir):
         local = run_json_subprocess(
             [str(PADDLEOCR_VENV_PYTHON), str(REPO_ROOT / "scripts" / "ocr_local.py"), str(slide)]
         )
-        if needs_gemini_escalation(local["texts"], local["scores"]):
-            gemini = run_json_subprocess([sys.executable, str(REPO_ROOT / "scripts" / "ocr_gemini.py"), str(slide)])
-            results.append({
-                "slide": slide.name, "text": gemini["text"],
-                "engine_primary": local["engine"], "engine_fallback": gemini["engine"],
-                "confidence": local["mean_score"],
-            })
+        record = {
+            "slide": slide.name,
+            "engine_primary": local["engine"],
+            "confidence": local["mean_score"],
+        }
+        if needs_escalation(local["texts"], local["scores"]):
+            record.update(escalate_slide(slide, media_dir))
         else:
-            results.append({
-                "slide": slide.name, "text": local["text"],
-                "engine_primary": local["engine"], "engine_fallback": None,
-                "confidence": local["mean_score"],
+            record.update({
+                "text": local["text"],
+                "engine_fallback": None,
+                "engine_secondary": None,
             })
+        results.append(record)
 
     combined_text = "\n\n".join(r["text"] for r in results)
     return build_extracted_json(shortcode, "image", text=combined_text, slides=results)

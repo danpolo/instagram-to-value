@@ -3,8 +3,9 @@
 the full PaddlePaddle framework install -- fine for a CPU-only machine at this
 volume, PLAN.md sec 2). Handles Latin/CJK text directly; has no Hebrew/RTL model
 at all, so Hebrew images come back empty or low-confidence -- extract.py's
-needs_gemini_escalation() is what routes those to Gemini (PLAN.md sec 0
-Correction 1, sec 7's Phase 2 design note).
+needs_escalation() is what routes those to the API engines, OCR.space Engine 3
+first and Gemini second (PLAN.md sec 0 Correction 1, sec 7's Phase 2 design
+note).
 
 Usage:
     ~/.local/venvs/paddleocr/bin/python scripts/ocr_local.py <image.jpg>
