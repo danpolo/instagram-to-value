@@ -36,3 +36,19 @@ were real, and they were invisible on the surface.
 **How to apply:** In this repo, check the code path before calling something broken —
 the surface signal has been wrong more often than right. Equally: the real problems
 here don't announce themselves, so "nothing looks wrong" isn't a finding either.
+
+## 2026-08-30 — Handoffs go in a file, not a chat block
+
+**What Dan said:** *"dont write me long paste ready prompts anymore, i would
+rather you write the details in a md file and write me a short prompt
+referencing the file."* — after I produced a ~70-line paste-ready handoff in
+chat.
+
+**How to apply:** Handoff detail goes to
+`docs/superpowers/handoffs/YYYY-MM-DD-<topic>.md`, committed. The chat message
+is a short prompt naming the task and the file path, nothing more. A committed
+file survives scrollback, diffs, and can be read directly by the next session.
+
+**Same message, second correction:** when the design left no open decisions,
+the next session should plan *and* implement without an approval gate between
+them. Say so explicitly in the handoff file.
