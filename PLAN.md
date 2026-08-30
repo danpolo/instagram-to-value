@@ -508,7 +508,7 @@ Net: the stage now survives losing either vendor entirely, and only fails when
   not the `instagram.com/<user>/reel/<code>` form Instagram actually links to (found
   while fetching the Hebrew reel above). Now `instagram\.com/(?:[^/]+/)?(?:p|reel|reels)/...`.
 
-### Phase 3 — Ingest bot — ⏳ CODE COMPLETE 2026-08-30, live phone-ack check pending
+### Phase 3 — Ingest bot — ✅ DONE 2026-08-30
 Standalone Telegram bot, own token, allowlisted to your chat ID. URL → job file → ack.
 Progress notifications on stage transitions. Also triggers account
 discovery/enrollment per §4.5 — resolves the post's creator and, if new,
@@ -541,13 +541,13 @@ kicks off a capped, throttled backfill into the same job queue.
   enrolled a bogus duplicate `pages/4440726664.json` for an already-tracked
   account. Now prefers `channel` (the real lowercase handle) and lowercases
   consistently so both fetch tracks key the same account the same way.
-- ⏳ **Open:** the bot (`scripts/telegram_bot.py`) is live and polling, but a
-  real message sent from Dan's phone — the plan's literal done-criterion —
-  hadn't arrived as of this session. Everything downstream of "a job lands in
-  `jobs/queued/`" is real-verified; only the actual phone→ack round trip is
-  still outstanding. No code reason to expect it not to work (`telegram_bot.py`
-  uses the exact same `Application`/`MessageHandler` pattern verified live in
-  `telegram_notify.py`'s successful send), but it hasn't been observed.
+- ✅ **Done-criterion met live:** a real reel URL sent from Dan's phone
+  (`instagram.com/reel/DbsDXkgJ_FB/?igsi=...`) produced
+  `jobs/queued/DbsDXkgJ_FB.json` with the real `chat_id` and the tracking
+  query param correctly stripped by `extract_shortcode`'s regex, with a
+  synchronous ack — the handler's only work between receiving the message
+  and replying is one idempotency check and one file write, well under the
+  2s bar.
 
 ### Phase 4 — Interpret + staging gate
 Claude Code reads extracted output, runs the tool resolver, classifies, writes a proposal
