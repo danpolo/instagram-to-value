@@ -558,10 +558,30 @@ Claude Code reads extracted output, runs the tool resolver, classifies, writes a
 to `staging/`, and sends you a summary with an approve/reject action.
 *Done when:* an approved proposal installs to the right path and a rejected one logs its reason.
 
+**Why this is the next phase, concretely.** Phase 3's done-notification
+(`worker.py:129`) is a status line by design — `✅ <shortcode> done — audio, 2818
+chars`. It tells you a job finished, never what the post *said*, so today the only
+way to learn the content is to open a session and read `extracted/<shortcode>.json`
+by hand. That happened for real on 2026-08-30 (see facts below). Phase 4's "sends
+you a summary" is what closes the gap; it is not a missing Phase 3 feature.
+
 ### Phase 5 — Automate
 systemd user timer or `/loop` drains the queue. Weekly digest of what was created.
 Daily: walk the watchlist (§4.5) — re-list each enrolled account's newest
 posts, enqueue anything past `newest_known_shortcode`, update the cursor.
+
+**Worker durability — required before the worker becomes long-lived.** Everything
+below is harmless today only because `worker.py` has never run outside `--once`.
+Turning on `while True` (`worker.py:155`) is what makes them real; do these in the
+same change, not after:
+- Wrap `note()` (`worker.py:87`) so a Telegram error degrades to a logged warning
+  instead of killing the run — and revisit `telegram_notify.send()`'s deliberate
+  fail-loud contract, which was written for a one-shot worker (open item #7).
+- Requeue orphans on startup: scan `jobs/running/` and move anything found back to
+  `queued/`, since a job there means the previous run died mid-flight (open item #8).
+  Jobs are idempotent by design (§6), so a replay is safe.
+- Check `free -h` available RAM before launching a job — §8 risk #1, ASR peaks at
+  6.9 GB of ~9 GB. Unattended draining of 49 queued jobs is where OOM actually bites.
 
 ---
 
@@ -623,6 +643,9 @@ accelerate, librosa, soundfile, and the downloaded `Qwen/Qwen3-ASR-1.7B-hf` weig
 | 4 | `discover.sh` is superseded | session | The no-auth search-index route (8 posts, 0.5% coverage). Keep as a no-cookie fallback; do not mistake it for the real enumerator. |
 | 5 | `~/.local/venvs/instaloader` unused | session | 29 MB. Installed only to prove the anonymous wall; safe to delete. |
 | 6 | ~~IG account flagged for automation~~ | — | **Resolved 2026-08-26.** Account cooled down, cookies re-exported (mode 600) — see facts below for what actually went into fixing this. Throttled scanning (`scripts/scan_carousel.py`) subsequently ran 26+ probes with no further auth issues. |
+| 7 | A `notify()` failure kills the worker mid-job | session | `worker.py:87` `note()` is unwrapped at lines 89/100/129, and `telegram_notify.send()` raises on error. Deliberate for `--once` (its docstring argues a worker that can't notify should be noticed); wrong for Phase 5's `while True` daemon, where a transient Telegram blip takes down a run meant to last days. **Fix in Phase 5.** |
+| 8 | Jobs orphaned in `jobs/running/` are never recovered | session | `drain_once` only iterates `list_queued` (`worker.py:133`); nothing ever reads `running/` back. Any interruption between `worker.py:140` and `:128` — OOM, reboot, or bug #7 — strands the job permanently. Compounds with risk #1: ASR peaks at 6.9 GB of ~9 GB, so mid-job OOM is expected, not hypothetical. **Fix in Phase 5.** |
+| 9 | Bugs #7 and #8 compound | session | The `note()` at `worker.py:89` fires *before* fetch, so a notify error there orphans the job (#8). The one at `:129` fires after `move_job`, so state stays correct and only the message is lost. Same root, different severity — fix #7 and #8 together. |
 
 ### Facts established this session (do not re-derive)
 
@@ -643,6 +666,43 @@ accelerate, librosa, soundfile, and the downloaded `Qwen/Qwen3-ASR-1.7B-hf` weig
 - **gallery-dl rewrites the cookie jar after every run** — it is mutable state, not a
   static credential.
 - `gallery-dl --print-to-file` silently emits nothing under `--simulate`.
+
+### Facts established 2026-08-30 (Phase 3 close-out session)
+
+- **`worker.py` exiting after a job is not a crash — it is `--once`.** The run in
+  `/tmp/worker_run2.log` is 4 lines: fetch, extract, discover, enroll, then exit.
+  `--once` (`worker.py:152`) drains what is queued and stops. There is no daemon
+  running today and none is expected until Phase 5.
+- **The 49 `chase.h.ai` backfill jobs are queued and intentionally undrained.**
+  Enrolled automatically when `DbsDXkgJ_FB` resolved to a new account. Draining
+  them is ~28 min of local ASR each — do not kick this off casually, and read
+  Phase 5's worker-durability block first (open items #7, #8).
+- **This project has its own Telegram send path, independent of the Claude
+  bridge.** `scripts/telegram_notify.py` — send-only, reads `TELEGRAM_BOT_TOKEN`
+  and `TELEGRAM_ALLOWED_CHAT_ID` from `secrets.env`, one fresh `Bot` per call. It
+  works even when the `plugin:telegram:telegram` MCP server is down, which it was
+  this session (`CONNECTION_CLOSED`). Verified live: a 1643-char report delivered
+  to Dan's phone via `from telegram_notify import send`. **These are two different
+  channels** — the MCP bridge failing says nothing about this one. Confirms the
+  §0 Correction-3 finding from the other direction: the bridge was never the
+  pipeline's notification path, `telegram_notify.py` is.
+- **The ingest bot (`scripts/telegram_bot.py`) stays up across sessions** — pid
+  1954425, running since 03:33. It owns the long-poll loop; `telegram_notify.py`
+  deliberately does not poll, so both can coexist on the same token.
+- **`jobs/failed/` not existing is not a bug.** `move_job` does
+  `mkdir(parents=True, exist_ok=True)` (`jobs_lib.py:48`), so the directory is
+  created on first failure. Checked because its absence looks alarming next to
+  `queued/`, `running/` and `done/`.
+- **`DbsDXkgJ_FB` end-to-end result, as a reference for what good output looks
+  like:** `@chase.h.ai`, audio-only m4a, 2:33, 2818 chars. Local `qwen3-asr-1.7b`
+  reconciled against `groq-whisper-large-v3` at **93.5% agreement** (556 vs 554
+  words, 28 disagreement spans); ~28 min wall (80 s load, 470 s peek, 1122 s full).
+  The reconciler earned its place here: Groq systematically heard *"cash"* for
+  *"cache"* and *"cloud code"* for *"Claude Code"*, and the local model won every
+  one of those spans. Two mis-hearings still survived into the merged text —
+  *"Claude Det MD"* (CLAUDE.md) and *"a smaller model like Sonar or Opus"*
+  (Sonnet) — both domain proper nouns, which is exactly where Phase 4's tool
+  resolver (§4) will have to be tolerant of ASR noise rather than string-matching.
 
 ### Facts established 2026-08-30 (Phase 2 OCR-vendor session)
 
