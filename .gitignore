@@ -34,6 +34,9 @@ out/
 # --- pipeline state/output (regenerable, see PLAN.md sec 6) ------------
 # extracted/, jobs/, staging/, pages/ are pipeline working state, not source
 # -- same reasoning as media/out being ignored above.
+# .yt-dlp-archive.txt is the same class of thing (an append-only "seen" list)
+# but was tracked at the initial commit by mistake -- untracked 2026-08-30.
+media/.yt-dlp-archive.txt
 extracted/
 jobs/
 staging/
