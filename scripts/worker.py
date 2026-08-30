@@ -46,9 +46,17 @@ def resolve_creator_username(media_dir: Path, shortcode: str):
             info = json.loads(info_json.read_text())
         except (json.JSONDecodeError, OSError):
             info = {}
-        username = info.get("uploader_id") or info.get("uploader")
+        # `channel` is yt-dlp's actual lowercase handle -- matches the URL
+        # slug gallery-dl's image-track sidecar reports as "username".
+        # `uploader_id` is frequently numeric and `uploader` can be a display
+        # name in different casing than the real handle; found live
+        # 2026-08-30: a post's uploader_id was the numeric account ID, which
+        # enrolled a bogus duplicate pages/<id>.json instead of recognizing
+        # the already-watched account. Lowercased so both tracks always
+        # produce the same key for the same account.
+        username = info.get("channel") or info.get("uploader_id") or info.get("uploader")
         if username:
-            return username
+            return str(username).lower()
 
     for meta_path in sorted(media_dir.glob(f"{shortcode}_*.json")):
         try:
@@ -57,7 +65,7 @@ def resolve_creator_username(media_dir: Path, shortcode: str):
             continue
         username = meta.get("username") or meta.get("owner_id")
         if username:
-            return username
+            return str(username).lower()
     return None
 
 

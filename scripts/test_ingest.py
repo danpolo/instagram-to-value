@@ -161,6 +161,19 @@ def test_resolve_creator_username_from_info_json(tmp_path):
     assert worker.resolve_creator_username(media_dir, "ABC123") == "networkchuck"
 
 
+def test_resolve_creator_username_prefers_channel_over_numeric_uploader_id(tmp_path):
+    # Real shape found live 2026-08-30 (post DcmLKiSF75h): uploader_id is the
+    # numeric account ID, uploader is a display-name-cased string, channel is
+    # the actual lowercase handle matching the image track's "username".
+    # Picking uploader_id first enrolled a bogus duplicate account.
+    media_dir = tmp_path / "ABC123"
+    media_dir.mkdir()
+    (media_dir / "ABC123.info.json").write_text(json.dumps({
+        "uploader": "NetworkChuck", "uploader_id": "4440726664", "channel": "networkchuck",
+    }))
+    assert worker.resolve_creator_username(media_dir, "ABC123") == "networkchuck"
+
+
 def test_resolve_creator_username_from_gallery_dl_sidecar(tmp_path):
     media_dir = tmp_path / "ABC123"
     media_dir.mkdir()
