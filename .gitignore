@@ -23,6 +23,13 @@ out/
 *.info.json
 *.description
 *.jsonl
+# gallery-dl's --write-metadata sidecar for each carousel slide (found
+# untracked 2026-08-30: *.jpg was ignored but not its .json sidecar).
+*.jpg.json
+*.jpeg.json
+*.png.json
+*.webp.json
+*.mp4.json
 
 # --- pipeline state/output (regenerable, see PLAN.md sec 6) ------------
 # extracted/, jobs/, staging/, pages/ are pipeline working state, not source

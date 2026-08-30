@@ -273,16 +273,20 @@ timer / weekly digest, not a separate scheduler):
 
 **Open questions — settle when Phase 3/5 actually get built, not blocking
 Phase 1/2:**
-- Exact backfill numbers (50 posts / 90 days are placeholders).
-- Enumeration mechanism: `discover.sh`'s no-auth search-index route is
-  already known-dead (0.5% coverage, see §9). Needs the *authenticated*
-  route — gallery-dl's Instagram extractor internally implements
-  `user_feed(user_id)`/`user_by_name(username)` (found while investigating
-  the comment-fetching gap, see §9) — unlike comments, post *listing* does
-  appear to be a real, implemented gallery-dl feature. Verify against
-  cookies before building on it.
+- ~~Exact backfill numbers (50 posts / 90 days are placeholders).~~
+  **Kept as-is 2026-08-30** — Phase 3 shipped with these defaults; no reason
+  found yet to tune them (first real enrollment, `@chase.h.ai`, hit the
+  50-post cap cleanly with real data). Revisit if a watched account's backfill
+  turns out too small/large in practice.
+- ~~Enumeration mechanism~~ **Resolved 2026-08-30.** Not the internal
+  `user_feed`/`user_by_name` Python API — the plain CLI form works and is
+  simpler: `gallery-dl <profile>/posts/ --post-range 1-N -j --sleep-request
+  8-18`, authenticated via the same cookie jar, verified live against
+  `@networkchuck` and `@chase.h.ai`. See `scripts/discover_account.py`.
 - No "untrack" mechanism designed yet — add one if an account ever needs
-  removing from the watchlist.
+  removing from the watchlist. Still open; `discover_account.py`'s
+  `enroll_if_new` also has no retry path for a failed listing (the page file
+  it wrote blocks a naive re-run) — same underlying gap.
 
 ---
 
