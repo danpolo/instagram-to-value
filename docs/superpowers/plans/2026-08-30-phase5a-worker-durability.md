@@ -54,7 +54,7 @@ handoff file above **is** the spec; this plan operationalizes it.
   process_job_fn=process_job)` — two new optional kwargs, both defaulted so
   `main()` and Phase 3's existing call sites need no changes.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_drain_once_defers_job_when_ram_low(tmp_path, capsys):
@@ -81,12 +81,12 @@ def test_drain_once_proceeds_job_when_ram_ok(tmp_path):
 
 Add both to `scripts/test_ingest.py`, after `test_list_queued_oldest_first`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `python3 -m pytest scripts/test_ingest.py -k drain_once -v`
 Expected: FAIL — `drain_once() got an unexpected keyword argument 'available_ram_gb_fn'`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `scripts/worker.py`, add to the import block (after the existing
 `from discover_account import enroll_if_new` line):
@@ -118,12 +118,12 @@ def drain_once(jobs_root, media_root, extracted_root, pages_root,
                         job.get("chat_id"), jobs_root, media_root, extracted_root, pages_root)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `python3 -m pytest scripts/test_ingest.py -k drain_once -v`
 Expected: PASS (2 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/worker.py scripts/test_ingest.py
@@ -146,7 +146,7 @@ git commit -m "worker: gate job launch on available RAM (PLAN.md sec 8 risk 1)"
 - Produces: `worker.requeue_orphans(jobs_root)` — no return value, called
   once from `main()` before the drain loop.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_requeue_orphans_moves_running_to_queued(tmp_path):
@@ -172,12 +172,12 @@ def test_requeue_orphans_skips_unreadable_file(tmp_path, capsys):
 
 Add all three to `scripts/test_ingest.py`, after Task 1's tests.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `python3 -m pytest scripts/test_ingest.py -k requeue_orphans -v`
 Expected: FAIL — `module 'worker' has no attribute 'requeue_orphans'`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add above `drain_once` in `scripts/worker.py`:
 
@@ -208,12 +208,12 @@ and before the `while True:` loop:
     requeue_orphans(args.jobs_root)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `python3 -m pytest scripts/test_ingest.py -k requeue_orphans -v`
 Expected: PASS (3 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/worker.py scripts/test_ingest.py
@@ -237,7 +237,7 @@ git commit -m "worker: requeue orphaned jobs.running/ on startup (PLAN.md open i
   any exception from `notify_fn`, logs a warning, never raises. `process_job`'s
   `note()` closure now delegates to it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_safe_notify_calls_through_on_success():
@@ -257,12 +257,12 @@ def test_safe_notify_swallows_raising_notifier(capsys):
 
 Add both to `scripts/test_ingest.py`, after Task 2's tests.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `python3 -m pytest scripts/test_ingest.py -k safe_notify -v`
 Expected: FAIL — `module 'worker' has no attribute 'safe_notify'`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add above `process_job` in `scripts/worker.py`:
 
@@ -308,12 +308,12 @@ def send(text, chat_id=None, secrets_path=DEFAULT_SECRETS):
     gets it by calling send() directly."""
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `python3 -m pytest scripts/test_ingest.py -k safe_notify -v`
 Expected: PASS (2 tests)
 
-- [ ] **Step 5: Full suite + commit**
+- [x] **Step 5: Full suite + commit**
 
 Run: `python3 -m pytest scripts/ -v`
 Expected: 75 passed (68 + 2 + 3 + 2)
@@ -332,25 +332,25 @@ git commit -m "worker: swallow note() failures instead of killing the job (PLAN.
 
 No tests — documentation only.
 
-- [ ] **Step 1: Close item #2** (Groq API key). Change the row to record it
+- [x] **Step 1: Close item #2** (Groq API key). Change the row to record it
   resolved, citing the two real reconciliation runs already in §7: Phase 2's
   87.1% (English reel `DW1O6ZBEfDa`) and Phase 3's 93.5%
   (`DbsDXkgJ_FB`, §9 facts).
 
-- [ ] **Step 2: Close item #5** (unused instaloader venv). Delete it, then
+- [x] **Step 2: Close item #5** (unused instaloader venv). Delete it, then
   mark resolved:
 
 ```bash
 rm -rf ~/.local/venvs/instaloader
 ```
 
-- [ ] **Step 3: Verify item #4** (`discover.sh`). Read `discover.sh` and
+- [x] **Step 3: Verify item #4** (`discover.sh`). Read `discover.sh` and
   confirm it is still the search-index anonymous-fallback route described in
   the open-items table (queries `site:instagram.com`/`lite.duckduckgo.com`,
   no auth). If the description still matches, leave the row's text as-is —
   it already reads correctly, this is a verify-only step per the handoff.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add PLAN.md
@@ -364,17 +364,17 @@ git commit -m "docs: close stale open items #2 and #5, verify #4 still accurate"
 No code changes — this is the handoff's required live verification before
 launching the drain. All three must pass.
 
-- [ ] **Step 1: Orphan recovery under a real kill.** Queue a throwaway test
+- [x] **Step 1: Orphan recovery under a real kill.** Queue a throwaway test
   job, start `python3 scripts/worker.py --once`, kill it (`SIGKILL`) after it
   has moved the job to `running/` but before it finishes. Restart
   `--once`. Confirm the log shows `requeued orphaned job <shortcode>` and the
   job reaches `done/` or `failed/` (not stuck in `running/`).
 
-- [ ] **Step 2: Telegram happy path still works.** Confirm a real progress
+- [x] **Step 2: Telegram happy path still works.** Confirm a real progress
   message arrives on a normal job run — the `safe_notify` wrapper must not
   have silenced anything on success.
 
-- [ ] **Step 3: RAM gate reads a plausible number.** Run
+- [x] **Step 3: RAM gate reads a plausible number.** Run
   `python3 -c "import sys; sys.path.insert(0,'scripts'); from extract import get_available_ram_gb; print(get_available_ram_gb())"`
   and sanity-check the value against `free -h`.
 
@@ -384,7 +384,7 @@ launching the drain. All three must pass.
 
 **Only after all three Task 5 checks pass.**
 
-- [ ] **Step 1: Start detached, logging outside the repo.**
+- [x] **Step 1: Start detached, logging outside the repo.**
 
 ```bash
 nohup python3 scripts/worker.py --once > /tmp/worker_drain.log 2>&1 &
@@ -393,14 +393,33 @@ disown
 
 Record the PID (`echo $!` or `pgrep -f "worker.py --once"`).
 
-- [ ] **Step 2: Watch the first 2-3 jobs complete.** Tail
+- [x] **Step 2: Watch the first 2-3 jobs complete.** Tail
   `/tmp/worker_drain.log` and confirm at least 2-3 jobs reach `done/` (or a
   legitimate `failed/` with a real error, not a crash) before stepping away.
 
-- [ ] **Step 3: Report to Dan** — test count before/after, which of the three
+- [x] **Step 3: Report to Dan** — test count before/after, which of the three
   Task 5 checks passed, the drain's PID and logfile path, how many jobs
   completed while watching, the estimated finish time (~28 min/job × jobs
   remaining), and confirmation that Session 2 can start immediately.
+
+**What actually happened, deviating from the literal steps above:**
+- Launched with the harness's own `Bash(run_in_background: true)` instead of
+  a manual `nohup ... & disown`, after the first `nohup` launch (with its log
+  in plain `/tmp/`) died along with the whole real host reboot at
+  `2026-08-30 22:03:34` — the box rebooted mid-drain, not a sandbox/tool
+  artifact. That first run still got real value: it drained 5 real jobs
+  (`DcNELNupJRh`, `DcOzCuYJXX4`, `DcFeZa0JgXi`, plus 2 more) and, when killed
+  mid-ASR by a deliberate `SIGKILL` test *before* the reboot, proved
+  `requeue_orphans()` live for the first time.
+- The reboot itself produced a **second, unplanned** proof of the same fix:
+  it orphaned `Dcez-FApTe7` in `jobs/running/`, and the relaunch requeued it
+  automatically with no code change needed.
+- Process-tree check at close (`ps -o pid,ppid,pgid,sid,tty`) confirmed the
+  relaunched drain is its own session leader with no controlling tty (`SID`
+  distinct from the interactive shell's, `TT ?`) — a POSIX session boundary
+  a terminal/session-close `SIGHUP` does not cross. The residual risk is
+  only a real host reboot/crash, which is recoverable exactly like the one
+  above: `requeue_orphans()` + a fresh `--once` picks it back up.
 
 ---
 

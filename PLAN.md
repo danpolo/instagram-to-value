@@ -735,10 +735,9 @@ accelerate, librosa, soundfile, and the downloaded `Qwen/Qwen3-ASR-1.7B-hf` weig
   `/tmp/worker_run2.log` is 4 lines: fetch, extract, discover, enroll, then exit.
   `--once` (`worker.py:152`) drains what is queued and stops. There is no daemon
   running today and none is expected until Phase 5.
-- **The 49 `chase.h.ai` backfill jobs are queued and intentionally undrained.**
-  Enrolled automatically when `DbsDXkgJ_FB` resolved to a new account. Draining
-  them is ~28 min of local ASR each — do not kick this off casually, and read
-  Phase 5's worker-durability block first (open items #7, #8).
+- ~~The 49 `chase.h.ai` backfill jobs are queued and intentionally undrained.~~
+  **Draining since 2026-08-30, see the 2026-08-30 Phase 5a session facts
+  below** — durability landed and the drain is running.
 - **This project has its own Telegram send path, independent of the Claude
   bridge.** `scripts/telegram_notify.py` — send-only, reads `TELEGRAM_BOT_TOKEN`
   and `TELEGRAM_ALLOWED_CHAT_ID` from `secrets.env`, one fresh `Bot` per call. It
@@ -765,6 +764,33 @@ accelerate, librosa, soundfile, and the downloaded `Qwen/Qwen3-ASR-1.7B-hf` weig
   *"Claude Det MD"* (CLAUDE.md) and *"a smaller model like Sonar or Opus"*
   (Sonnet) — both domain proper nouns, which is exactly where Phase 4's tool
   resolver (§4) will have to be tolerant of ASR noise rather than string-matching.
+
+### Facts established 2026-08-30 (Phase 5a session — durability + drain launch)
+
+- **The drain is live, unattended, and has already survived a real host
+  reboot.** After the three durability fixes landed (§7 Phase 5a block), the
+  backfill drain was started, killed mid-ASR on purpose to verify
+  `requeue_orphans()`, restarted, and then the **host itself rebooted**
+  mid-run (boot time `2026-08-30 22:03:34`) — an unplanned second proof of
+  the same fix: the in-flight job (`Dcez-FApTe7`) was found orphaned in
+  `jobs/running/` and requeued automatically on the next `--once` start, no
+  intervention needed. **To check on it:** `ls jobs/{queued,running,done,failed}/*.json | wc -l`
+  per state, or `pgrep -af "worker.py --once"` for the live process. If the
+  queue is fully drained (`jobs/queued/` empty) and no process is running,
+  it finished cleanly — nothing to do. If jobs are queued and no process is
+  running (e.g. after another reboot), just start it again:
+  `python3 scripts/worker.py --once` (detached) — `requeue_orphans()` makes
+  a restart always safe.
+- **`nohup ... & disown` writing to plain `/tmp/` is not reliable evidence
+  on this host** — the log file it wrote to vanished along with the reboot,
+  which turned out to be a real host event, not a harness/sandbox artifact.
+  A background worker's own detachment (session leader, no controlling tty —
+  verified via `ps -o pid,ppid,pgid,sid,tty`) already survives a Claude Code
+  session ending; only a real reboot/crash needs the manual restart above.
+- **Session state at close (2026-08-30, this session):** 40 queued, 1
+  running, 12 done, 0 failed (started the session at 49 queued + 4 done).
+  Estimate ~41 jobs × ~28 min ≈ 19h from session-close time, though several
+  jobs observed this session finished well under that.
 
 ### Facts established 2026-08-30 (Phase 2 OCR-vendor session)
 
