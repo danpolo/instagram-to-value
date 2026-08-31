@@ -17,6 +17,8 @@ import discard
 import unsupported
 import rule
 import skill as skill_action
+import package_install
+import shell_snippet
 
 
 class _FakeHandler:
@@ -351,3 +353,78 @@ def test_skill_install_writes_frontmatter(tmp_path):
 def test_skill_collides_false_when_absent(monkeypatch, tmp_path):
     monkeypatch.setattr(skill_action, "SKILLS_ROOT", tmp_path)
     assert skill_action.collides({"name": "new-skill", "description": "d", "content": "c"}) is None
+
+
+def test_package_install_preview_is_literal_command():
+    payload = {"manager": "cargo", "package": "zoxide", "command": "cargo install zoxide"}
+    assert package_install.preview(payload) == "cargo install zoxide"
+
+
+def test_package_install_target_path_none():
+    payload = {"manager": "cargo", "package": "zoxide", "command": "cargo install zoxide"}
+    assert package_install.target_path(payload) is None
+
+
+def test_package_install_collides_always_none():
+    payload = {"manager": "pip", "package": "x", "command": "pip install x"}
+    assert package_install.collides(payload) is None
+
+
+def test_package_install_rejects_unlisted_manager():
+    reg = {}
+    registry.register(package_install, registry_dict=reg)
+    ok, error = registry.validate_payload(
+        "package_install", {"manager": "brew", "package": "x", "command": "brew install x"}, registry_dict=reg)
+    assert ok is False
+
+
+def test_package_install_install_runs_command_and_captures_exit_code():
+    payload = {"manager": "pip", "package": "x", "command": "true"}
+    result = package_install.install(payload)
+    assert result["ok"] is True
+    assert result["exit_code"] == 0
+    assert result["command"] == "true"
+
+
+def test_package_install_install_records_failure():
+    payload = {"manager": "pip", "package": "x", "command": "false"}
+    result = package_install.install(payload)
+    assert result["ok"] is False
+    assert result["exit_code"] != 0
+
+
+def test_shell_snippet_target_path_is_bashrc():
+    assert shell_snippet.target_path({"marker": "x", "snippet": "y", "description": "d"}) == shell_snippet.BASHRC
+
+
+def test_shell_snippet_preview_includes_markers_and_snippet():
+    payload = {"marker": "zoxide-init", "snippet": 'eval "$(zoxide init bash)"', "description": "d"}
+    preview = shell_snippet.preview(payload)
+    assert "instagram-to-value: zoxide-init" in preview
+    assert 'eval "$(zoxide init bash)"' in preview
+
+
+def test_shell_snippet_collides_false_when_marker_absent(monkeypatch, tmp_path):
+    fake_bashrc = tmp_path / ".bashrc"
+    fake_bashrc.write_text("# nothing here\n")
+    monkeypatch.setattr(shell_snippet, "BASHRC", fake_bashrc)
+    assert shell_snippet.collides({"marker": "new-marker", "snippet": "x", "description": "d"}) is None
+
+
+def test_shell_snippet_collides_true_when_marker_present(monkeypatch, tmp_path):
+    fake_bashrc = tmp_path / ".bashrc"
+    monkeypatch.setattr(shell_snippet, "BASHRC", fake_bashrc)
+    payload = {"marker": "dup", "snippet": "x", "description": "d"}
+    shell_snippet.install(payload, fake_bashrc)
+    assert shell_snippet.collides(payload) == fake_bashrc
+
+
+def test_shell_snippet_install_appends_block(tmp_path):
+    target = tmp_path / ".bashrc"
+    target.write_text("# existing content\n")
+    payload = {"marker": "zoxide-init", "snippet": 'eval "$(zoxide init bash)"', "description": "d"}
+    result = shell_snippet.install(payload, target)
+    assert result["ok"] is True
+    text = target.read_text()
+    assert "# existing content" in text
+    assert 'eval "$(zoxide init bash)"' in text
