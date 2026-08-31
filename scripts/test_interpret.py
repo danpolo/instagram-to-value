@@ -22,6 +22,7 @@ import shell_snippet
 import git_repo
 import calendar_event
 import staging_lib
+import install_artifact
 
 
 class _FakeHandler:
@@ -599,3 +600,136 @@ def test_format_unsupported_summary_sorted_desc():
 
 def test_format_unsupported_summary_empty_counts():
     assert staging_lib.format_unsupported_summary({}) == ""
+
+
+def test_validate_path_accepts_valid_target(tmp_path):
+    allowed_root = tmp_path / "allowed"
+    allowed_root.mkdir()
+    target = allowed_root / "sub" / "file.md"  # doesn't need to exist
+    resolved = install_artifact.validate_path(target, allowed_roots=[allowed_root], allowed_files=[])
+    assert resolved == target.resolve()
+
+
+def test_validate_path_rejects_traversal(tmp_path):
+    allowed_root = tmp_path / "allowed"
+    allowed_root.mkdir()
+    (tmp_path / "outside").mkdir()
+    target = allowed_root / ".." / "outside" / "secret.txt"
+    try:
+        install_artifact.validate_path(target, allowed_roots=[allowed_root], allowed_files=[])
+        assert False, "expected PathNotAllowedError"
+    except install_artifact.PathNotAllowedError:
+        pass
+
+
+def test_validate_path_rejects_symlink_escape(tmp_path):
+    allowed_root = tmp_path / "allowed"
+    allowed_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("secret")
+    escape_link = allowed_root / "escape"
+    escape_link.symlink_to(outside)
+    target = escape_link / "secret.txt"
+    try:
+        install_artifact.validate_path(target, allowed_roots=[allowed_root], allowed_files=[])
+        assert False, "expected PathNotAllowedError"
+    except install_artifact.PathNotAllowedError:
+        pass
+
+
+def test_validate_path_accepts_allowed_file_exact_match(tmp_path):
+    fake_bashrc = tmp_path / ".bashrc"
+    resolved = install_artifact.validate_path(fake_bashrc, allowed_roots=[], allowed_files=[fake_bashrc])
+    assert resolved == fake_bashrc.resolve()
+
+
+def test_validate_path_rejects_outside_root(tmp_path):
+    allowed_root = tmp_path / "allowed"
+    allowed_root.mkdir()
+    outside_target = tmp_path / "outside" / "file.md"
+    try:
+        install_artifact.validate_path(outside_target, allowed_roots=[allowed_root], allowed_files=[])
+        assert False, "expected PathNotAllowedError"
+    except install_artifact.PathNotAllowedError:
+        pass
+
+
+def test_install_action_unknown_type_fails(tmp_path):
+    staging_root = tmp_path / "staging"
+    staging_lib.write_proposal("ABC", staging_root, {
+        "shortcode": "ABC", "actions": [{"id": "a1", "type": "nope", "status": "pending"}]})
+    action = {"id": "a1", "type": "nope", "payload": {}}
+    result = install_artifact.install_action(action, "ABC", staging_root)
+    assert result["ok"] is False
+
+
+def test_install_action_cancel_marks_skipped(tmp_path, monkeypatch):
+    monkeypatch.setattr(rule, "RULES_ROOT", tmp_path / "rules")
+    staging_root = tmp_path / "staging"
+    action = {"id": "a1", "type": "rule", "payload": {"topic": "x", "content": "y"}}
+    staging_lib.write_proposal("ABC", staging_root, {
+        "shortcode": "ABC", "actions": [{**action, "status": "pending", "result": None}]})
+    result = install_artifact.install_action(action, "ABC", staging_root, resolution="cancel")
+    assert result["ok"] is True
+    proposal = staging_lib.read_proposal("ABC", staging_root)
+    assert proposal["actions"][0]["status"] == "skipped"
+
+
+def test_install_action_installs_when_no_collision(tmp_path, monkeypatch):
+    monkeypatch.setattr(rule, "RULES_ROOT", tmp_path / "rules")
+    monkeypatch.setattr(install_artifact, "ALLOWED_ROOTS", [tmp_path / "rules"])
+    staging_root = tmp_path / "staging"
+    action = {"id": "a1", "type": "rule", "payload": {"topic": "new-topic", "content": "content here"}}
+    staging_lib.write_proposal("ABC", staging_root, {
+        "shortcode": "ABC", "actions": [{**action, "status": "pending", "result": None}]})
+    result = install_artifact.install_action(action, "ABC", staging_root)
+    assert result["ok"] is True
+    assert (tmp_path / "rules" / "new-topic.md").read_text() == "content here"
+    proposal = staging_lib.read_proposal("ABC", staging_root)
+    assert proposal["actions"][0]["status"] == "installed"
+
+
+def test_install_action_reports_collision_without_deciding(tmp_path, monkeypatch):
+    monkeypatch.setattr(rule, "RULES_ROOT", tmp_path / "rules")
+    monkeypatch.setattr(install_artifact, "ALLOWED_ROOTS", [tmp_path / "rules"])
+    (tmp_path / "rules").mkdir()
+    (tmp_path / "rules" / "dup.md").write_text("old content")
+    staging_root = tmp_path / "staging"
+    action = {"id": "a1", "type": "rule", "payload": {"topic": "dup", "content": "new content"}}
+    staging_lib.write_proposal("ABC", staging_root, {
+        "shortcode": "ABC", "actions": [{**action, "status": "pending", "result": None}]})
+    result = install_artifact.install_action(action, "ABC", staging_root)
+    assert result.get("collision") is True
+    proposal = staging_lib.read_proposal("ABC", staging_root)
+    assert proposal["actions"][0]["status"] == "pending"  # not yet decided
+
+
+def test_install_action_replace_backs_up_original(tmp_path, monkeypatch):
+    monkeypatch.setattr(rule, "RULES_ROOT", tmp_path / "rules")
+    monkeypatch.setattr(install_artifact, "ALLOWED_ROOTS", [tmp_path / "rules"])
+    (tmp_path / "rules").mkdir()
+    (tmp_path / "rules" / "dup.md").write_text("old content")
+    staging_root = tmp_path / "staging"
+    action = {"id": "a1", "type": "rule", "payload": {"topic": "dup", "content": "new content"}}
+    staging_lib.write_proposal("ABC", staging_root, {
+        "shortcode": "ABC", "actions": [{**action, "status": "pending", "result": None}]})
+    result = install_artifact.install_action(action, "ABC", staging_root, resolution="replace")
+    assert result["ok"] is True
+    assert (tmp_path / "rules" / "dup.md").read_text() == "new content"
+    assert (staging_root / "ABC" / "replaced-dup.md").read_text() == "old content"
+
+
+def test_install_action_keep_both_suffixes_target(tmp_path, monkeypatch):
+    monkeypatch.setattr(rule, "RULES_ROOT", tmp_path / "rules")
+    monkeypatch.setattr(install_artifact, "ALLOWED_ROOTS", [tmp_path / "rules"])
+    (tmp_path / "rules").mkdir()
+    (tmp_path / "rules" / "dup.md").write_text("old content")
+    staging_root = tmp_path / "staging"
+    action = {"id": "a1", "type": "rule", "payload": {"topic": "dup", "content": "new content"}}
+    staging_lib.write_proposal("ABC", staging_root, {
+        "shortcode": "ABC", "actions": [{**action, "status": "pending", "result": None}]})
+    result = install_artifact.install_action(action, "ABC", staging_root, resolution="keep_both")
+    assert result["ok"] is True
+    assert (tmp_path / "rules" / "dup.md").read_text() == "old content"
+    assert (tmp_path / "rules" / "dup-2.md").read_text() == "new content"
