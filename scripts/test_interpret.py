@@ -15,6 +15,8 @@ import reference
 import note
 import discard
 import unsupported
+import rule
+import skill as skill_action
 
 
 class _FakeHandler:
@@ -306,3 +308,46 @@ def test_unsupported_install_appends_jsonl(monkeypatch, tmp_path):
 
 def test_unsupported_collides_always_none():
     assert unsupported.collides({"proposed_type": "x", "payload_sketch": {}, "rationale": "y"}) is None
+
+
+def test_rule_target_path_slug(monkeypatch, tmp_path):
+    monkeypatch.setattr(rule, "RULES_ROOT", tmp_path)
+    target = rule.target_path({"topic": "Claude Code Token Costs", "content": "x"})
+    assert target == tmp_path / "claude-code-token-costs.md"
+
+
+def test_rule_collides_true_when_present(monkeypatch, tmp_path):
+    monkeypatch.setattr(rule, "RULES_ROOT", tmp_path)
+    target = rule.target_path({"topic": "existing", "content": "x"})
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("old")
+    assert rule.collides({"topic": "existing", "content": "x"}) == target
+
+
+def test_rule_install_writes_content(tmp_path):
+    target = tmp_path / "topic.md"
+    result = rule.install({"topic": "topic", "content": "the rule text"}, target)
+    assert result["ok"] is True
+    assert target.read_text() == "the rule text"
+
+
+def test_skill_target_path_uses_slug(monkeypatch, tmp_path):
+    monkeypatch.setattr(skill_action, "SKILLS_ROOT", tmp_path)
+    target = skill_action.target_path({"name": "Token Saver", "description": "d", "content": "c"})
+    assert target == tmp_path / "token-saver" / "SKILL.md"
+
+
+def test_skill_install_writes_frontmatter(tmp_path):
+    target = tmp_path / "token-saver" / "SKILL.md"
+    payload = {"name": "Token Saver", "description": "Cuts Claude Code costs", "content": "body text"}
+    result = skill_action.install(payload, target)
+    assert result["ok"] is True
+    written = target.read_text()
+    assert "name: token-saver" in written
+    assert "description: Cuts Claude Code costs" in written
+    assert "body text" in written
+
+
+def test_skill_collides_false_when_absent(monkeypatch, tmp_path):
+    monkeypatch.setattr(skill_action, "SKILLS_ROOT", tmp_path)
+    assert skill_action.collides({"name": "new-skill", "description": "d", "content": "c"}) is None
