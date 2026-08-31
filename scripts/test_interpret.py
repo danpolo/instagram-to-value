@@ -21,6 +21,7 @@ import package_install
 import shell_snippet
 import git_repo
 import calendar_event
+import staging_lib
 
 
 class _FakeHandler:
@@ -471,3 +472,130 @@ def test_calendar_event_install_writes_ics(tmp_path):
 def test_calendar_event_collides_false_when_absent(monkeypatch, tmp_path):
     monkeypatch.setattr(calendar_event, "CALENDAR_ROOT", tmp_path)
     assert calendar_event.collides({"title": "New Event", "date": "2026-01-01"}) is None
+
+
+def test_write_and_read_proposal_roundtrip(tmp_path):
+    staging_lib.write_proposal("ABC", tmp_path, {"shortcode": "ABC", "actions": []})
+    assert staging_lib.read_proposal("ABC", tmp_path) == {"shortcode": "ABC", "actions": []}
+
+
+def test_read_proposal_missing_returns_none(tmp_path):
+    assert staging_lib.read_proposal("NOPE", tmp_path) is None
+
+
+def test_has_staging_true_after_write(tmp_path):
+    staging_lib.write_proposal("ABC", tmp_path, {"shortcode": "ABC", "actions": []})
+    assert staging_lib.has_staging("ABC", tmp_path) is True
+    assert staging_lib.has_staging("NOPE", tmp_path) is False
+
+
+def test_list_pending_filters_by_status(tmp_path):
+    staging_lib.write_proposal("A", tmp_path, {"shortcode": "A", "status": "pending", "actions": []})
+    staging_lib.write_proposal("B", tmp_path, {"shortcode": "B", "status": "decided", "actions": []})
+    assert staging_lib.list_pending(tmp_path) == ["A"]
+
+
+def test_update_action_status_marks_decided_when_all_done(tmp_path):
+    staging_lib.write_proposal("A", tmp_path, {
+        "shortcode": "A", "status": "pending",
+        "actions": [{"id": "a1", "status": "pending", "result": None}]})
+    proposal = staging_lib.update_action_status("A", tmp_path, "a1", "installed", {"ok": True})
+    assert proposal["actions"][0]["status"] == "installed"
+    assert proposal["status"] == "decided"
+
+
+def test_update_action_status_stays_pending_with_more_actions(tmp_path):
+    staging_lib.write_proposal("A", tmp_path, {
+        "shortcode": "A", "status": "pending",
+        "actions": [{"id": "a1", "status": "pending", "result": None},
+                    {"id": "a2", "status": "pending", "result": None}]})
+    proposal = staging_lib.update_action_status("A", tmp_path, "a1", "installed", {"ok": True})
+    assert proposal["status"] == "pending"
+
+
+def test_set_message_id(tmp_path):
+    staging_lib.write_proposal("A", tmp_path, {"shortcode": "A", "actions": [], "message_id": None})
+    staging_lib.set_message_id("A", tmp_path, 4242)
+    assert staging_lib.read_proposal("A", tmp_path)["message_id"] == 4242
+
+
+def test_record_reject_reason_marks_pending_actions_skipped(tmp_path):
+    staging_root = tmp_path / "staging"
+    logs_root = tmp_path / "logs"
+    staging_lib.write_proposal("A", staging_root, {
+        "shortcode": "A", "summary": "s", "status": "pending",
+        "actions": [{"id": "a1", "status": "pending", "result": None}]})
+    staging_lib.record_reject_reason("A", staging_root, "not useful", logs_root=logs_root)
+    proposal = staging_lib.read_proposal("A", staging_root)
+    assert proposal["actions"][0]["status"] == "skipped"
+    assert proposal["status"] == "decided"
+    lines = (logs_root / "discarded.jsonl").read_text().splitlines()
+    assert json.loads(lines[0])["reason"] == "not useful"
+
+
+def test_format_proposal_message_includes_summary_and_actions():
+    proposal = {
+        "shortcode": "ABC", "summary": "zoxide, a smarter cd",
+        "resolver": {"status": "resolved", "tool_name": "zoxide"},
+        "actions": [{"id": "a1", "type": "package_install", "risk": "exec",
+                       "payload": {"package": "zoxide"}}],
+    }
+    text = staging_lib.format_proposal_message(proposal, {"package_install": lambda p: f"install {p['package']}"})
+    assert "zoxide, a smarter cd" in text
+    assert "resolved (zoxide)" in text
+    assert "install zoxide" in text
+
+
+def test_is_auto_discard_eligible_true_for_backfill_high_confidence():
+    assert staging_lib.is_auto_discard_eligible("backfill", "discard", 0.9) is True
+
+
+def test_is_auto_discard_eligible_false_for_telegram_origin():
+    assert staging_lib.is_auto_discard_eligible("telegram", "discard", 0.99) is False
+
+
+def test_is_auto_discard_eligible_false_below_threshold():
+    assert staging_lib.is_auto_discard_eligible("backfill", "discard", 0.5) is False
+
+
+def test_is_auto_discard_eligible_false_for_non_discard_type():
+    assert staging_lib.is_auto_discard_eligible("backfill", "reference", 0.99) is False
+
+
+def test_format_digest_counts_categories_and_auto_discards():
+    proposals = [
+        {"shortcode": "A", "actions": [{"type": "package_install", "status": "pending"},
+                                          {"type": "reference", "status": "pending"}]},
+        {"shortcode": "B", "actions": [{"type": "discard", "status": "auto_discarded"}]},
+        {"shortcode": "C", "actions": [{"type": "unsupported", "status": "pending"}]},
+    ]
+    digest = staging_lib.format_digest(proposals)
+    assert "3 proposals" in digest
+    assert "1 tools" in digest
+    assert "1 references" in digest
+    assert "1 auto-discarded" in digest
+    assert "1 unsupported types" in digest
+
+
+def test_aggregate_unsupported_counts_by_proposed_type(tmp_path):
+    log_path = tmp_path / "unsupported.jsonl"
+    log_path.write_text(
+        json.dumps({"proposed_type": "browser_extension"}) + "\n" +
+        json.dumps({"proposed_type": "browser_extension"}) + "\n" +
+        json.dumps({"proposed_type": "rss_subscribe"}) + "\n"
+    )
+    counts = staging_lib.aggregate_unsupported(log_path)
+    assert counts == {"browser_extension": 2, "rss_subscribe": 1}
+
+
+def test_aggregate_unsupported_missing_file_returns_empty(tmp_path):
+    assert staging_lib.aggregate_unsupported(tmp_path / "nope.jsonl") == {}
+
+
+def test_format_unsupported_summary_sorted_desc():
+    summary = staging_lib.format_unsupported_summary({"rss_subscribe": 1, "browser_extension": 2})
+    assert summary == "⚠️ 3 posts wanted actions I can't do yet: browser_extension ×2, rss_subscribe ×1."
+
+
+def test_format_unsupported_summary_empty_counts():
+    assert staging_lib.format_unsupported_summary({}) == ""
