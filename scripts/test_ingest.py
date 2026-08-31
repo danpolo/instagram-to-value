@@ -86,9 +86,9 @@ def test_drain_once_proceeds_job_when_ram_ok(tmp_path):
     jobs_lib.write_job("ABC123", tmp_path, "queued", url="https://x/p/ABC123/")
     calls = []
     worker.drain_once(tmp_path, tmp_path / "media", tmp_path / "extracted", tmp_path / "pages",
-                       available_ram_gb_fn=lambda: 10.0, process_job_fn=lambda *a: calls.append(a))
+                       available_ram_gb_fn=lambda: 10.0, process_job_fn=lambda *a, **kw: calls.append((a, kw)))
     assert len(calls) == 1
-    assert calls[0][0] == "ABC123"
+    assert calls[0][0][0] == "ABC123"
     state, _ = jobs_lib.find_job("ABC123", tmp_path)
     assert state == "running"
 
@@ -243,3 +243,15 @@ def test_resolve_creator_username_none_when_absent(tmp_path):
     media_dir = tmp_path / "ABC123"
     media_dir.mkdir()
     assert worker.resolve_creator_username(media_dir, "ABC123") is None
+
+
+def test_build_proposal_buttons_none_when_nothing_pending():
+    actions = [{"status": "installed"}, {"status": "skipped"}]
+    assert worker.build_proposal_buttons(actions) is None
+
+
+def test_build_proposal_buttons_present_when_pending_exists():
+    actions = [{"status": "pending"}]
+    buttons = worker.build_proposal_buttons(actions)
+    assert buttons is not None
+    assert len(buttons) == 2
