@@ -19,6 +19,8 @@ import rule
 import skill as skill_action
 import package_install
 import shell_snippet
+import git_repo
+import calendar_event
 
 
 class _FakeHandler:
@@ -428,3 +430,44 @@ def test_shell_snippet_install_appends_block(tmp_path):
     text = target.read_text()
     assert "# existing content" in text
     assert 'eval "$(zoxide init bash)"' in text
+
+
+def test_git_repo_target_path(monkeypatch, tmp_path):
+    monkeypatch.setattr(git_repo, "TOOLS_ROOT", tmp_path)
+    assert git_repo.target_path({"name": "mem-palace", "url": "https://x"}) == tmp_path / "mem-palace"
+
+
+def test_git_repo_preview_is_literal_clone_command(monkeypatch, tmp_path):
+    monkeypatch.setattr(git_repo, "TOOLS_ROOT", tmp_path)
+    preview = git_repo.preview({"name": "mem-palace", "url": "https://github.com/x/mem-palace"})
+    assert preview == f"git clone https://github.com/x/mem-palace {tmp_path / 'mem-palace'}"
+
+
+def test_git_repo_collides_true_when_dir_exists(monkeypatch, tmp_path):
+    monkeypatch.setattr(git_repo, "TOOLS_ROOT", tmp_path)
+    (tmp_path / "existing").mkdir()
+    assert git_repo.collides({"name": "existing", "url": "https://x"}) == tmp_path / "existing"
+
+
+def test_calendar_event_target_path_slug(monkeypatch, tmp_path):
+    monkeypatch.setattr(calendar_event, "CALENDAR_ROOT", tmp_path)
+    target = calendar_event.target_path({"title": "Apple Event!", "date": "2026-09-09"})
+    assert target == tmp_path / "apple-event.ics"
+
+
+def test_calendar_event_ics_contains_date_and_title():
+    ics = calendar_event.preview({"title": "Apple Event", "date": "2026-09-09", "time": "10:00"})
+    assert "SUMMARY:Apple Event" in ics
+    assert "DTSTART:20260909T100000" in ics
+
+
+def test_calendar_event_install_writes_ics(tmp_path):
+    target = tmp_path / "apple-event.ics"
+    result = calendar_event.install({"title": "Apple Event", "date": "2026-09-09"}, target)
+    assert result["ok"] is True
+    assert "BEGIN:VCALENDAR" in target.read_text()
+
+
+def test_calendar_event_collides_false_when_absent(monkeypatch, tmp_path):
+    monkeypatch.setattr(calendar_event, "CALENDAR_ROOT", tmp_path)
+    assert calendar_event.collides({"title": "New Event", "date": "2026-01-01"}) is None
