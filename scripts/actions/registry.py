@@ -9,6 +9,7 @@ it once at startup. generate_prompt_catalogue() builds the agent's action-type
 menu straight from REGISTRY, so adding a handler automatically teaches the
 classifier it exists; no prompt is ever hand-edited to list a new type."""
 import importlib
+import re
 
 VALID_RISKS = ("inert", "config", "exec")
 REGISTRY = {}
@@ -75,6 +76,9 @@ def validate_payload(action_type, payload, registry_dict=None):
     for field, allowed_values in schema.get("enum", {}).items():
         if field in payload and payload[field] not in allowed_values:
             return False, f"{action_type}: payload field {field!r} must be one of {allowed_values}"
+    for field, pattern in schema.get("patterns", {}).items():
+        if field in payload and not re.match(pattern, str(payload[field] or "")):
+            return False, f"{action_type}: payload field {field!r} does not match the required format {pattern!r}"
     return True, None
 
 

@@ -192,6 +192,42 @@ def test_validate_payload_bad_enum_value():
     assert ok is False
 
 
+def test_validate_payload_bad_pattern_value():
+    class PatternHandler(_FakeHandler):
+        TYPE = "pattern_type"
+        SCHEMA = {"required": ["url"], "types": {"url": str}, "patterns": {"url": r"^https?://\S+$"}}
+
+    reg = {}
+    registry.register(PatternHandler, registry_dict=reg)
+    ok, error = registry.validate_payload("pattern_type", {"url": "not a url"}, registry_dict=reg)
+    assert ok is False
+    ok, error = registry.validate_payload("pattern_type", {"url": "https://example.com"}, registry_dict=reg)
+    assert ok is True
+
+
+def test_git_repo_rejects_empty_url():
+    reg = {}
+    registry.register(git_repo, registry_dict=reg)
+    ok, error = registry.validate_payload("git_repo", {"name": "x", "url": ""}, registry_dict=reg)
+    assert ok is False
+
+
+def test_git_repo_rejects_non_url_placeholder_text():
+    reg = {}
+    registry.register(git_repo, registry_dict=reg)
+    ok, error = registry.validate_payload(
+        "git_repo", {"name": "x", "url": "UNVERIFIED -- no repo link found"}, registry_dict=reg)
+    assert ok is False
+
+
+def test_git_repo_accepts_real_url():
+    reg = {}
+    registry.register(git_repo, registry_dict=reg)
+    ok, error = registry.validate_payload(
+        "git_repo", {"name": "x", "url": "https://github.com/x/y"}, registry_dict=reg)
+    assert ok is True
+
+
 def test_validate_payload_unknown_type():
     ok, error = registry.validate_payload("nonexistent_type", {}, registry_dict={})
     assert ok is False

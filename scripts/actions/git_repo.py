@@ -17,6 +17,17 @@ RISK = "config"
 SCHEMA = {
     "required": ["name", "url"],
     "types": {"name": str, "url": str},
+    # Found live during the Task 13 real backfill sweep: when a tool is named
+    # directly but no URL evidence exists, the agent sometimes filled `url`
+    # with an empty string, a GitHub *search* link, or literal text like
+    # "UNVERIFIED -- no repo link found" instead of a real repo URL -- none of
+    # which `git clone` can use. This pattern rejects the clearest breakage
+    # (empty/non-URL text) and feeds registry.py's existing schema-violation
+    # retry loop; it can't catch every wrong-but-URL-shaped guess (a stricter
+    # fix -- escalating to tier 4 web search whenever a git_repo/
+    # package_install action has no resolver evidence, not just when
+    # unnamed_tool.present -- is a real gap, noted in the Session 3 pilot brief).
+    "patterns": {"url": r"^(https?://|git@)\S+$"},
 }
 TOOLS_ROOT = Path.home() / "tools"
 
