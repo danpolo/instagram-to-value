@@ -41,6 +41,7 @@ extracted/
 jobs/
 staging/
 pages/
+logs/
 *.local.json
 *.groq.json
 *.ocrspace.json

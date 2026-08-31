@@ -11,6 +11,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "actions"))
 
 import agents_lib
 import registry
+import reference
+import note
+import discard
+import unsupported
 
 
 class _FakeHandler:
@@ -230,3 +234,75 @@ def test_generate_prompt_catalogue_includes_type_and_risk():
     assert "fake_type" in catalogue
     assert "config" in catalogue
     assert "foo" in catalogue
+
+
+def test_reference_target_path_uses_slug(monkeypatch, tmp_path):
+    monkeypatch.setattr(reference, "CAPTURED_KNOWLEDGE_ROOT", tmp_path)
+    target = reference.target_path({"title": "Zoxide Tips!", "content": "x"})
+    assert target == tmp_path / "facts" / "zoxide-tips.md"
+
+
+def test_reference_collides_false_when_absent(monkeypatch, tmp_path):
+    monkeypatch.setattr(reference, "CAPTURED_KNOWLEDGE_ROOT", tmp_path)
+    assert reference.collides({"title": "New Thing", "content": "x"}) is None
+
+
+def test_reference_collides_true_when_present(monkeypatch, tmp_path):
+    monkeypatch.setattr(reference, "CAPTURED_KNOWLEDGE_ROOT", tmp_path)
+    target = reference.target_path({"title": "Existing", "content": "x"})
+    target.parent.mkdir(parents=True)
+    target.write_text("old")
+    assert reference.collides({"title": "Existing", "content": "x"}) == target
+
+
+def test_reference_install_writes_file_and_index(tmp_path):
+    target = tmp_path / "facts" / "some-fact.md"
+    result = reference.install({"title": "Some Fact", "content": "the content"}, target)
+    assert result["ok"] is True
+    assert target.read_text() == "the content"
+
+
+def test_note_target_path_uses_slug(monkeypatch, tmp_path):
+    monkeypatch.setattr(note, "CAPTURED_KNOWLEDGE_ROOT", tmp_path)
+    target = note.target_path({"title": "A Note", "content": "x"})
+    assert target == tmp_path / "notes" / "a-note.md"
+
+
+def test_note_install_writes_file(tmp_path):
+    target = tmp_path / "notes" / "n.md"
+    result = note.install({"title": "N", "content": "body"}, target)
+    assert result["ok"] is True
+    assert target.read_text() == "body"
+
+
+def test_discard_target_path_is_none():
+    assert discard.target_path({"reason": "x"}) is None
+
+
+def test_discard_collides_always_none():
+    assert discard.collides({"reason": "x"}) is None
+
+
+def test_discard_install_appends_jsonl(monkeypatch, tmp_path):
+    log_path = tmp_path / "discarded.jsonl"
+    monkeypatch.setattr(discard, "DISCARDED_LOG", log_path)
+    discard.install({"reason": "personal essay, not tech"}, None, {"shortcode": "ABC123", "transcript_excerpt": "..."})
+    lines = log_path.read_text().splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["shortcode"] == "ABC123"
+    assert record["reason"] == "personal essay, not tech"
+
+
+def test_unsupported_install_appends_jsonl(monkeypatch, tmp_path):
+    log_path = tmp_path / "unsupported.jsonl"
+    monkeypatch.setattr(unsupported, "UNSUPPORTED_LOG", log_path)
+    payload = {"proposed_type": "browser_extension", "payload_sketch": {"name": "x"}, "rationale": "no handler"}
+    unsupported.install(payload, None, {"shortcode": "XYZ789"})
+    record = json.loads(log_path.read_text().splitlines()[0])
+    assert record["proposed_type"] == "browser_extension"
+    assert record["shortcode"] == "XYZ789"
+
+
+def test_unsupported_collides_always_none():
+    assert unsupported.collides({"proposed_type": "x", "payload_sketch": {}, "rationale": "y"}) is None
