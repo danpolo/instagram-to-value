@@ -585,10 +585,51 @@ kicks off a capped, throttled backfill into the same job queue.
   and replying is one idempotency check and one file write, well under the
   2s bar.
 
-### Phase 4 — Interpret + staging gate — 🔨 DESIGN DONE 2026-08-30, plan pending
+### Phase 4 — Interpret + staging gate — ✅ Phase 4a DONE 2026-08-31
 Claude Code reads extracted output, runs the tool resolver, classifies, writes a proposal
 to `staging/`, and sends you a summary with an approve/reject action.
 *Done when:* an approved proposal installs to the right path and a rejected one logs its reason.
+
+**Phase 4a results** (plan:
+`docs/superpowers/plans/2026-08-30-phase4a-interpret-stage.md`, 13 tasks):
+- **75 → 200 unit tests, zero regressions.** All 10 corpus handlers built
+  (`package_install`, `shell_snippet`, `git_repo`, `calendar_event`, `rule`,
+  `skill`, `reference`, `note`, `discard`, `unsupported`), plus
+  `agents_lib.py`, the action registry, `resolve_tools.py`, `staging_lib.py`,
+  `install_artifact.py`, `interpret.py`, and the `worker.py`/`telegram_bot.py`
+  approval-flow wiring.
+- **Live verification: all 7 corpus posts pass the design spec's bar**, but
+  only after finding and fixing 5 real bugs (a prompt bias toward `reference`
+  over concrete install actions; no retry on a schema-invalid — not just
+  unparseable — action list; codex's `--output-schema` rejecting the action
+  list's polymorphic `payload` field; `has_staging()` treating a failed
+  attempt as done; `git_repo` accepting a garbage `url`). See
+  `docs/superpowers/handoffs/SESSION-3-pilot.md`'s "State from Session 2" for
+  the full detail on each.
+- **Backend parity confirmed** (`claude` and `codex` both produce
+  schema-valid, materially similar action lists) — and it earned its keep
+  immediately: Dan's Claude account hit its **monthly spend limit** mid-sweep
+  (29 of 38 posts failed with a real 429), and switching the sweep to
+  `--backend codex` finished the remainder cleanly.
+- **Real backfill sweep run against all 42 posts** on disk by session end (not
+  just the original 49-job drain — a few extra queued during the session).
+  43 total agent calls, median ~14s/post, 1 escalation. Digest: 26 tools
+  (`package_install` ×8, `git_repo` ×17, `shell_snippet` ×1), 16 rules-family
+  (`rule` ×5, `skill` ×11), 15 references, 1 calendar event, 4 auto-discarded,
+  8 `unsupported` across 6 posts — the ranked backlog for Phase 4b:
+  `skill_install` ×4, `binary_release` ×3, `claude_plugin_install` ×1.
+- **Drain closed out at 39 done / 14 failed** (0 queued/running). 12 of the 14
+  failures are the Instagram cookie session going dead/rate-limited again
+  (risk #2, recurring — needs a cookie re-export before the next fetch).
+- **Deferred to Phase 4b/5** (per the plan's self-review + the pilot brief):
+  the remaining ~19 registry handlers (informed by the ranked backlog above),
+  `update_existing` (a real duplicate-artifact risk already observed:
+  `DbJvSDzpf47`/`DbJvV3BpnO6` both propose the same two skills), Google
+  Calendar MCP for `calendar_event` (writes to `<repo>/knowledge/calendar/`
+  instead), and the daemon/timer/digest/watchlist-walk (Phase 5b). The live
+  Telegram approval loop (buttons, collisions, a real install per risk tier,
+  a real rejection) has unit tests but was **not yet exercised for real** —
+  that's Session 3's first job.
 
 **Design spec:** `docs/superpowers/specs/2026-08-30-phase4-interpret-staging-design.md`
 (442 lines, committed `15f8d9f`). Read it before touching Phase 4 — it supersedes
@@ -610,8 +651,11 @@ to `staging/`, and sends you a summary with an approve/reject action.
 
 **Implementation is split into two plans** (per the spec's self-review):
 **4a** = stage end-to-end + registry framework + the handlers the 7-post corpus
-demands; **4b** = the long-tail handlers, informed by the pilot's `unsupported`
-log. Neither plan is written yet.
+demands — ✅ **done, see the Phase 4a results block above**; **4b** = the
+long-tail handlers, informed by the pilot's `unsupported` log (now a real
+ranked backlog: `skill_install` ×4, `binary_release` ×3,
+`claude_plugin_install` ×1) — plan not written yet, waits on Session 3's
+pilot (`docs/superpowers/handoffs/SESSION-3-pilot.md`).
 
 **Why this is the next phase, concretely.** Phase 3's done-notification
 (`worker.py:129`) is a status line by design — `✅ <shortcode> done — audio, 2818
