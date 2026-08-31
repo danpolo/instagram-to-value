@@ -24,6 +24,7 @@ import calendar_event
 import staging_lib
 import install_artifact
 import resolve_tools
+import interpret
 
 
 class _FakeHandler:
@@ -836,3 +837,165 @@ def test_resolve_via_web_search_no_tool_name_unresolved():
 def test_resolve_via_web_search_unparseable_unresolved():
     result = resolve_tools.resolve_via_web_search("not json at all", agents_lib.extract_json)
     assert result["status"] == "unresolved"
+
+
+def test_load_post_context_missing_extracted_raises(tmp_path):
+    try:
+        interpret.load_post_context("NOPE", tmp_path, tmp_path)
+        assert False, "expected FileNotFoundError"
+    except FileNotFoundError:
+        pass
+
+
+def test_load_post_context_reads_video_post(tmp_path):
+    extracted_root = tmp_path / "extracted"
+    media_root = tmp_path / "media"
+    extracted_root.mkdir()
+    (extracted_root / "ABC.json").write_text(json.dumps({"text": "transcript", "media_type": "audio"}))
+    media_dir = media_root / "ABC"
+    media_dir.mkdir(parents=True)
+    (media_dir / "ABC.info.json").write_text(json.dumps({
+        "description": "caption", "comments": [{"author": "x", "text": "y"}],
+        "channel": "networkchuck", "duration": 120}))
+    context = interpret.load_post_context("ABC", extracted_root, media_root)
+    assert context["description"] == "caption"
+    assert context["channel"] == "networkchuck"
+    assert context["duration_s"] == 120
+
+
+def test_load_post_context_reads_image_post(tmp_path):
+    extracted_root = tmp_path / "extracted"
+    media_root = tmp_path / "media"
+    extracted_root.mkdir()
+    (extracted_root / "IMG.json").write_text(json.dumps({"text": "ocr text", "media_type": "image"}))
+    media_dir = media_root / "IMG"
+    media_dir.mkdir(parents=True)
+    (media_dir / "IMG_01.jpg.json").write_text(json.dumps({"description": "caption", "username": "ynetgram"}))
+    context = interpret.load_post_context("IMG", extracted_root, media_root)
+    assert context["description"] == "caption"
+    assert context["channel"] == "ynetgram"
+
+
+def test_interpret_post_happy_path_single_agent_call(tmp_path, monkeypatch):
+    extracted_root, media_root, staging_root = tmp_path / "e", tmp_path / "m", tmp_path / "s"
+    extracted_root.mkdir()
+    (extracted_root / "ABC.json").write_text(json.dumps({"text": "install zoxide", "media_type": "audio"}))
+    (media_root / "ABC").mkdir(parents=True)
+    (media_root / "ABC" / "ABC.info.json").write_text(json.dumps({
+        "description": "zoxide", "comments": [], "channel": "chuck", "duration": 60}))
+
+    fake_response = json.dumps({
+        "summary": "zoxide, a smarter cd", "unnamed_tool": {"present": False, "description": ""},
+        "actions": [{"type": "package_install", "confidence": 0.9,
+                       "payload": {"manager": "cargo", "package": "zoxide", "command": "cargo install zoxide"}}],
+    })
+    monkeypatch.setattr(agents_lib, "run_agent",
+                          lambda *a, **kw: {"text": fake_response, "backend": "claude", "model": None,
+                                             "duration_s": 1.0, "ok": True, "error": None})
+
+    proposal = interpret.interpret_post("ABC", media_root, extracted_root, staging_root, tmp_path / "logs")
+    assert proposal["agent_calls"] == 1
+    assert proposal["actions"][0]["type"] == "package_install"
+    assert proposal["actions"][0]["risk"] == "exec"
+    assert staging_lib.read_proposal("ABC", staging_root) == proposal
+
+
+def test_interpret_post_agent_failure_raises_and_writes_error(tmp_path, monkeypatch):
+    extracted_root, media_root, staging_root = tmp_path / "e", tmp_path / "m", tmp_path / "s"
+    extracted_root.mkdir()
+    (extracted_root / "ABC.json").write_text(json.dumps({"text": "x", "media_type": "audio"}))
+    (media_root / "ABC").mkdir(parents=True)
+    monkeypatch.setattr(agents_lib, "run_agent",
+                          lambda *a, **kw: {"text": "", "backend": "claude", "model": None,
+                                             "duration_s": 1.0, "ok": False, "error": "boom"})
+    try:
+        interpret.interpret_post("ABC", media_root, extracted_root, staging_root, tmp_path / "logs")
+        assert False, "expected RuntimeError"
+    except RuntimeError:
+        pass
+    assert (staging_root / "ABC" / "agent-error.txt").exists()
+
+
+def test_interpret_post_invalid_action_list_raises(tmp_path, monkeypatch):
+    extracted_root, media_root, staging_root = tmp_path / "e", tmp_path / "m", tmp_path / "s"
+    extracted_root.mkdir()
+    (extracted_root / "ABC.json").write_text(json.dumps({"text": "x", "media_type": "audio"}))
+    (media_root / "ABC").mkdir(parents=True)
+    bad_response = json.dumps({"summary": "s", "unnamed_tool": {"present": False, "description": ""},
+                                 "actions": [{"type": "nonexistent_type", "confidence": 0.5, "payload": {}}]})
+    monkeypatch.setattr(agents_lib, "run_agent",
+                          lambda *a, **kw: {"text": bad_response, "backend": "claude", "model": None,
+                                             "duration_s": 1.0, "ok": True, "error": None})
+    try:
+        interpret.interpret_post("ABC", media_root, extracted_root, staging_root, tmp_path / "logs")
+        assert False, "expected RuntimeError"
+    except RuntimeError:
+        pass
+
+
+def test_interpret_post_auto_discard_eligible_on_backfill(tmp_path, monkeypatch):
+    extracted_root, media_root, staging_root, logs_root = tmp_path / "e", tmp_path / "m", tmp_path / "s", tmp_path / "l"
+    extracted_root.mkdir()
+    (extracted_root / "ABC.json").write_text(json.dumps({"text": "personal essay", "media_type": "audio"}))
+    (media_root / "ABC").mkdir(parents=True)
+    response = json.dumps({"summary": "personal essay, not tech", "unnamed_tool": {"present": False, "description": ""},
+                             "actions": [{"type": "discard", "confidence": 0.95, "payload": {"reason": "not tech"}}]})
+    monkeypatch.setattr(agents_lib, "run_agent",
+                          lambda *a, **kw: {"text": response, "backend": "claude", "model": None,
+                                             "duration_s": 1.0, "ok": True, "error": None})
+    monkeypatch.setattr(discard, "DISCARDED_LOG", logs_root / "discarded.jsonl")
+    proposal = interpret.interpret_post("ABC", media_root, extracted_root, staging_root, logs_root, origin="backfill")
+    assert proposal["actions"][0]["status"] == "auto_discarded"
+    assert proposal["status"] == "decided"
+    assert (logs_root / "discarded.jsonl").exists()
+
+
+def test_backfill_sweep_skips_already_staged(tmp_path):
+    extracted_root, staging_root = tmp_path / "e", tmp_path / "s"
+    extracted_root.mkdir()
+    (extracted_root / "DONE.json").write_text("{}")
+    (extracted_root / "NEW.json").write_text("{}")
+    staging_lib.write_proposal("DONE", staging_root, {"shortcode": "DONE", "actions": []})
+
+    calls = []
+    def fake_interpret_post(shortcode, *a, **kw):
+        calls.append(shortcode)
+        return {"shortcode": shortcode, "actions": []}
+
+    results = interpret.backfill_sweep(tmp_path / "m", extracted_root, staging_root, tmp_path / "l",
+                                          interpret_post_fn=fake_interpret_post)
+    assert calls == ["NEW"]
+    assert [p["shortcode"] for p in results["interpreted"]] == ["NEW"]
+
+
+def test_backfill_sweep_is_rerunnable(tmp_path):
+    extracted_root, staging_root = tmp_path / "e", tmp_path / "s"
+    extracted_root.mkdir()
+    (extracted_root / "A.json").write_text("{}")
+
+    def fake_interpret_post(shortcode, *a, **kw):
+        staging_lib.write_proposal(shortcode, staging_root, {"shortcode": shortcode, "actions": []})
+        return {"shortcode": shortcode, "actions": []}
+
+    first = interpret.backfill_sweep(tmp_path / "m", extracted_root, staging_root, tmp_path / "l",
+                                        interpret_post_fn=fake_interpret_post)
+    second = interpret.backfill_sweep(tmp_path / "m", extracted_root, staging_root, tmp_path / "l",
+                                         interpret_post_fn=fake_interpret_post)
+    assert len(first["interpreted"]) == 1
+    assert len(second["interpreted"]) == 0
+
+
+def test_backfill_sweep_sends_one_digest_not_per_post(tmp_path):
+    extracted_root, staging_root = tmp_path / "e", tmp_path / "s"
+    extracted_root.mkdir()
+    (extracted_root / "A.json").write_text("{}")
+    (extracted_root / "B.json").write_text("{}")
+
+    def fake_interpret_post(shortcode, *a, **kw):
+        return {"shortcode": shortcode, "actions": [{"type": "reference", "status": "pending"}]}
+
+    sent = []
+    interpret.backfill_sweep(tmp_path / "m", extracted_root, staging_root, tmp_path / "l",
+                                notify_fn=sent.append, interpret_post_fn=fake_interpret_post)
+    assert len(sent) == 1
+    assert "2 proposals" in sent[0]
