@@ -46,8 +46,13 @@ def read_proposal(shortcode, staging_root):
 
 def has_staging(shortcode, staging_root):
     """Used by interpret.py's backfill sweep to skip shortcodes already
-    interpreted -- makes the sweep safe to re-run."""
-    return staging_dir(shortcode, staging_root).exists()
+    interpreted -- makes the sweep safe to re-run. Checks for proposal.json
+    specifically, not mere directory existence: a staging dir holding only
+    agent-error.txt means a PREVIOUS attempt failed (e.g. an agent-call
+    error, or -- found live during the Task 13 real sweep -- hitting the
+    backend's own API rate/spend limit mid-run) and must stay retryable, not
+    be mistaken for a completed interpretation."""
+    return proposal_path(shortcode, staging_root).exists()
 
 
 def list_pending(staging_root):

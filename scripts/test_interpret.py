@@ -492,6 +492,17 @@ def test_has_staging_true_after_write(tmp_path):
     assert staging_lib.has_staging("NOPE", tmp_path) is False
 
 
+def test_has_staging_false_when_only_agent_error_present(tmp_path):
+    """A prior failed attempt (agent-error.txt, no proposal.json) must stay
+    retryable -- found live during the Task 13 real backfill sweep, where a
+    mid-sweep API spend-limit error would otherwise have permanently blocked
+    a re-run from ever retrying those shortcodes."""
+    d = staging_lib.staging_dir("ABC", tmp_path)
+    d.mkdir(parents=True)
+    (d / "agent-error.txt").write_text("{}")
+    assert staging_lib.has_staging("ABC", tmp_path) is False
+
+
 def test_list_pending_filters_by_status(tmp_path):
     staging_lib.write_proposal("A", tmp_path, {"shortcode": "A", "status": "pending", "actions": []})
     staging_lib.write_proposal("B", tmp_path, {"shortcode": "B", "status": "decided", "actions": []})

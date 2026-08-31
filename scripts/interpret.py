@@ -110,9 +110,29 @@ Read the transcript/OCR text, caption and comments below. Identify any concrete,
 actionable outcomes -- a tool the creator demos, a fact worth keeping, an event,
 a procedure worth turning into a Claude Code skill or rule -- and propose one
 action per outcome from the registry below. A post can produce zero, one, or
-several actions. Prefer the WEAKEST action that captures the value (a reference
-beats a rule; do not propose a rule/skill unless it is a genuine reusable
-procedure or always-on constraint).
+several actions.
+
+If the post demos an installable tool (a package, binary, or repo the viewer
+would want ON THEIR MACHINE), you MUST propose the concrete install action
+(package_install / git_repo / binary_release / etc.) for it -- a `reference`
+noting that the tool exists is not a substitute and must not replace it. Add a
+`reference` alongside the install action only for extra context that doesn't
+fit the install payload (e.g. a tip from the comments), never instead of it.
+If the tool needs a shell init line to actually work day-to-day (e.g. `zoxide
+init`), propose a SEPARATE `shell_snippet` action for that line in addition to
+the install action -- do not fold it into a reference either.
+
+The "prefer the weakest artifact" principle applies only among the knowledge/
+agent-config types themselves: default to `reference` over `rule`/`skill`
+UNLESS the post is a genuine repeatable procedure or always-on constraint (in
+which case propose the `skill`/`rule` directly, don't downgrade it to a
+reference). It never means skipping a real install/calendar/knowledge action
+in favor of a weaker one that captures less of the value. Concretely: a post
+of concrete practices for how an AI coding agent (like you) should be used or
+configured -- e.g. "always do X to cut token cost", "run Y before Z" -- is a
+`skill`/`rule` candidate, not merely a `reference`, even when it lists several
+tactics; a `reference` is for a fact/pointer with no actionable "always do
+this" content of its own.
 
 If a tool is named directly in the content (even without a link), use that
 name -- do not treat it as "unnamed". Only set unnamed_tool.present=true if the
@@ -188,6 +208,53 @@ def call_agent_for_json(prompt, schema, backend, allow_search=False, max_retries
     return None, last_result
 
 
+def call_agent_for_actions(prompt, backend, allow_search=False, max_retries=1):
+    """Like call_agent_for_json, but additionally validates the returned
+    action list against the registry and retries with a validation-error
+    nudge on a schema violation -- design spec's error handling: "Schema
+    violation in the returned action list -> same path as an unparseable
+    response." (Found live during Task 12 verification: the agent proposed
+    package_install with manager="brew", which isn't installed on this
+    machine -- the SCHEMA enum correctly rejected it, but nothing retried the
+    call before this fix, so a single enum slip failed the whole post.)
+
+    Deliberately does NOT pass ACTION_LIST_SCHEMA as codex's --output-schema
+    (also found live, Task 12's backend-parity check): an action's `payload`
+    is a genuinely different shape per action type, so it can't be a static
+    JSON Schema object -- and OpenAI's structured-output enforcement (which
+    codex's --output-schema uses) requires every object node to declare
+    "additionalProperties": false, rejecting an open-ended payload outright
+    ("'additionalProperties' is required to be supplied and to be false").
+    Python-side registry.validate_actions() is the real gate for both
+    backends here, same as the design spec's "Claude can only be asked"
+    already accepted for claude -- codex just doesn't get the extra belt on
+    this particular call. (SEARCH_SCHEMA has no such field and can still use
+    --output-schema; see build_search_prompt's caller.)
+    Returns (draft, agent_result); draft is None on final failure."""
+    attempt_prompt = prompt
+    last_result = None
+    for _ in range(max_retries + 1):
+        result = agents_lib.run_agent(attempt_prompt, backend=backend, allow_search=allow_search)
+        last_result = result
+        if not result["ok"]:
+            attempt_prompt = prompt + "\n\nYour previous attempt failed to run. Return ONLY the JSON object."
+            continue
+        try:
+            draft = agents_lib.extract_json(result["text"])
+        except ValueError:
+            attempt_prompt = prompt + "\n\nYour previous response was not valid JSON. Return ONLY the JSON object, nothing else."
+            continue
+        ok, errors = registry.validate_actions(draft.get("actions", []))
+        if ok:
+            return draft, result
+        attempt_prompt = (prompt + f"\n\nYour previous action list was invalid: {'; '.join(errors)}. "
+                           "Only use the exact action types, and the exact payload fields/enum values, from "
+                           "the 'Available action types' list above (e.g. package_install's manager must be "
+                           "one of npm/uv/pip/cargo/apt/docker -- brew/pipx/go are NOT installed on this "
+                           "machine). Return ONLY the corrected JSON object.")
+    return None, last_result
+
+
 def _write_agent_error(shortcode, staging_root, agent_result):
     d = staging_lib.staging_dir(shortcode, staging_root)
     d.mkdir(parents=True, exist_ok=True)
@@ -205,7 +272,7 @@ def interpret_post(shortcode, media_root, extracted_root, staging_root, logs_roo
     catalogue = registry.generate_prompt_catalogue()
 
     triage_prompt = build_triage_prompt(shortcode, context, pure_resolver, catalogue)
-    draft, agent_result = call_agent_for_json(triage_prompt, ACTION_LIST_SCHEMA, backend)
+    draft, agent_result = call_agent_for_actions(triage_prompt, backend)
     agent_calls = 1
     if draft is None:
         _write_agent_error(shortcode, staging_root, agent_result)
@@ -224,17 +291,15 @@ def interpret_post(shortcode, media_root, extracted_root, staging_root, logs_roo
             if web_result["status"] in ("resolved", "uncertain"):
                 resolver.update({"status": web_result["status"], "tool_name": web_result["tool_name"],
                                   "url": web_result["url"], "tier": 4, "evidence": web_result["sources"]})
-                redraft, _ = call_agent_for_json(build_redraft_prompt(triage_prompt, web_result),
-                                                   ACTION_LIST_SCHEMA, backend)
+                redraft, _ = call_agent_for_actions(build_redraft_prompt(triage_prompt, web_result), backend)
                 agent_calls += 1
                 if redraft is not None:
                     draft = redraft
             elif context["extracted"].get("media_type") == "video":
                 frame_result = resolve_tools.resolve_via_frame_ocr(shortcode, media_root, context["duration_s"])
                 if frame_result["texts"]:
-                    redraft, _ = call_agent_for_json(
-                        build_redraft_prompt(triage_prompt, {"on_screen_text": frame_result["texts"]}),
-                        ACTION_LIST_SCHEMA, backend)
+                    redraft, _ = call_agent_for_actions(
+                        build_redraft_prompt(triage_prompt, {"on_screen_text": frame_result["texts"]}), backend)
                     agent_calls += 1
                     if redraft is not None:
                         draft = redraft
