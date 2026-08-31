@@ -23,6 +23,7 @@ import git_repo
 import calendar_event
 import staging_lib
 import install_artifact
+import resolve_tools
 
 
 class _FakeHandler:
@@ -733,3 +734,105 @@ def test_install_action_keep_both_suffixes_target(tmp_path, monkeypatch):
     assert result["ok"] is True
     assert (tmp_path / "rules" / "dup.md").read_text() == "old content"
     assert (tmp_path / "rules" / "dup-2.md").read_text() == "new content"
+
+
+def test_extract_urls_dedupes_and_strips_punctuation():
+    text = "check https://zoxide.dev/. also https://zoxide.dev/ and (https://other.com/x)!"
+    assert resolve_tools.extract_urls(text) == ["https://zoxide.dev/", "https://other.com/x"]
+
+
+def test_extract_urls_empty_text():
+    assert resolve_tools.extract_urls("") == []
+    assert resolve_tools.extract_urls(None) == []
+
+
+def test_is_self_referential():
+    assert resolve_tools.is_self_referential("https://www.instagram.com/p/ABC/") is True
+    assert resolve_tools.is_self_referential("https://github.com/x/y") is False
+
+
+def test_tier1_creator_replies_filters_by_author():
+    comments = [
+        {"author": "networkchuck", "text": "Get it at https://zoxide.dev/"},
+        {"author": "randomfan", "text": "also try https://not-the-creator.com/"},
+    ]
+    assert resolve_tools.tier1_creator_replies(comments, "networkchuck") == ["https://zoxide.dev/"]
+
+
+def test_tier1_creator_replies_excludes_self_referential():
+    comments = [{"author": "networkchuck", "text": "see https://instagram.com/p/other/"}]
+    assert resolve_tools.tier1_creator_replies(comments, "networkchuck") == []
+
+
+def test_tier1_creator_replies_no_channel_returns_empty():
+    comments = [{"author": "networkchuck", "text": "https://x.com"}]
+    assert resolve_tools.tier1_creator_replies(comments, None) == []
+
+
+def test_tier2_caption_and_comments_combines_both():
+    description = "check out https://zoxide.dev/"
+    comments = [{"author": "randomfan", "text": "also https://other.com"}]
+    urls = resolve_tools.tier2_caption_and_comments(description, comments)
+    assert urls == ["https://zoxide.dev/", "https://other.com"]
+
+
+def test_resolve_pure_tiers_resolved_from_tier1():
+    comments = [{"author": "chuck", "text": "https://zoxide.dev/"}]
+    result = resolve_tools.resolve_pure_tiers("caption", comments, "chuck")
+    assert result == {"status": "resolved", "tier": 1, "candidates": ["https://zoxide.dev/"]}
+
+
+def test_resolve_pure_tiers_uncertain_multiple_candidates():
+    comments = [{"author": "chuck", "text": "https://a.com https://b.com"}]
+    result = resolve_tools.resolve_pure_tiers("caption", comments, "chuck")
+    assert result["status"] == "uncertain"
+    assert result["tier"] == 1
+
+
+def test_resolve_pure_tiers_falls_back_to_tier2():
+    comments = [{"author": "chuck", "text": "no links here"}, {"author": "fan", "text": "https://x.com"}]
+    result = resolve_tools.resolve_pure_tiers("caption", comments, "chuck")
+    assert result == {"status": "resolved", "tier": 2, "candidates": ["https://x.com"]}
+
+
+def test_resolve_pure_tiers_not_found():
+    result = resolve_tools.resolve_pure_tiers("no links here", [{"author": "fan", "text": "none either"}], "chuck")
+    assert result == {"status": "not_found", "tier": None, "candidates": []}
+
+
+def test_sample_frame_timestamps_short_clip():
+    assert resolve_tools.sample_frame_timestamps(0) == [0.0]
+
+
+def test_sample_frame_timestamps_respects_max_frames():
+    timestamps = resolve_tools.sample_frame_timestamps(400, interval_s=5, max_frames=8)
+    assert len(timestamps) == 8
+    assert timestamps[0] == 0.0
+
+
+def test_sample_frame_timestamps_short_duration_fewer_frames():
+    timestamps = resolve_tools.sample_frame_timestamps(12, interval_s=5, max_frames=8)
+    assert len(timestamps) == 3  # 12 // 5 + 1
+
+
+def test_resolve_via_web_search_high_confidence_resolved():
+    text = '{"tool_name": "zoxide", "url": "https://zoxide.dev/", "confidence": "high", "sources": ["a"]}'
+    result = resolve_tools.resolve_via_web_search(text, agents_lib.extract_json)
+    assert result == {"status": "resolved", "tool_name": "zoxide", "url": "https://zoxide.dev/", "sources": ["a"]}
+
+
+def test_resolve_via_web_search_low_confidence_uncertain():
+    text = '{"tool_name": "maybe-x", "url": null, "confidence": "low", "sources": []}'
+    result = resolve_tools.resolve_via_web_search(text, agents_lib.extract_json)
+    assert result["status"] == "uncertain"
+
+
+def test_resolve_via_web_search_no_tool_name_unresolved():
+    text = '{"tool_name": null, "url": null, "confidence": "low", "sources": []}'
+    result = resolve_tools.resolve_via_web_search(text, agents_lib.extract_json)
+    assert result["status"] == "unresolved"
+
+
+def test_resolve_via_web_search_unparseable_unresolved():
+    result = resolve_tools.resolve_via_web_search("not json at all", agents_lib.extract_json)
+    assert result["status"] == "unresolved"
