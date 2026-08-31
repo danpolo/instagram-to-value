@@ -10,6 +10,42 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "actions"))
 
 import agents_lib
+import registry
+
+
+class _FakeHandler:
+    """Stand-in satisfying the full handler contract, used to test the
+    registry framework in isolation before any real handler exists."""
+    TYPE = "fake_type"
+    RISK = "config"
+    SCHEMA = {"required": ["foo"], "types": {"foo": str}, "enum": {"foo": ("a", "b")}}
+    __doc__ = "A fake handler for registry tests."
+
+    @staticmethod
+    def target_path(payload):
+        return None
+
+    @staticmethod
+    def describe(payload):
+        return "fake"
+
+    @staticmethod
+    def preview(payload):
+        return "fake"
+
+    @staticmethod
+    def collides(payload):
+        return None
+
+    @staticmethod
+    def install(payload, target, context=None):
+        return {"ok": True}
+
+
+def _fresh_registry():
+    reg = {}
+    registry.register(_FakeHandler, registry_dict=reg)
+    return reg
 
 
 def test_build_cmd_claude_default():
@@ -89,3 +125,108 @@ def test_set_backend_unknown_raises(tmp_path):
         assert False, "expected ValueError"
     except ValueError:
         pass
+
+
+def test_register_populates_registry_dict():
+    reg = _fresh_registry()
+    assert reg["fake_type"] is _FakeHandler
+
+
+def test_register_rejects_missing_member():
+    class Incomplete:
+        TYPE = "incomplete"
+        RISK = "inert"
+        SCHEMA = {}
+        # missing target_path/describe/preview/collides/install
+
+    try:
+        registry.register(Incomplete, registry_dict={})
+        assert False, "expected AttributeError"
+    except AttributeError:
+        pass
+
+
+def test_register_rejects_bad_risk():
+    class BadRisk(_FakeHandler):
+        TYPE = "bad_risk_type"
+        RISK = "catastrophic"
+
+    try:
+        registry.register(BadRisk, registry_dict={})
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_validate_payload_missing_required_field():
+    reg = _fresh_registry()
+    ok, error = registry.validate_payload("fake_type", {}, registry_dict=reg)
+    assert ok is False
+    assert "foo" in error
+
+
+def test_validate_payload_wrong_type():
+    reg = _fresh_registry()
+    ok, error = registry.validate_payload("fake_type", {"foo": 123}, registry_dict=reg)
+    assert ok is False
+    assert "str" in error
+
+
+def test_validate_payload_bad_enum_value():
+    reg = _fresh_registry()
+    ok, error = registry.validate_payload("fake_type", {"foo": "z"}, registry_dict=reg)
+    assert ok is False
+
+
+def test_validate_payload_unknown_type():
+    ok, error = registry.validate_payload("nonexistent_type", {}, registry_dict={})
+    assert ok is False
+    assert "unknown action type" in error
+
+
+def test_validate_payload_valid():
+    reg = _fresh_registry()
+    ok, error = registry.validate_payload("fake_type", {"foo": "a"}, registry_dict=reg)
+    assert ok is True
+    assert error is None
+
+
+def test_validate_action_confidence_out_of_range():
+    reg = _fresh_registry()
+    action = {"type": "fake_type", "confidence": 1.5, "payload": {"foo": "a"}}
+    ok, error = registry.validate_action(action, registry_dict=reg)
+    assert ok is False
+
+
+def test_validate_action_missing_confidence():
+    reg = _fresh_registry()
+    action = {"type": "fake_type", "payload": {"foo": "a"}}
+    ok, error = registry.validate_action(action, registry_dict=reg)
+    assert ok is False
+
+
+def test_validate_actions_all_valid():
+    reg = _fresh_registry()
+    actions = [{"type": "fake_type", "confidence": 0.9, "payload": {"foo": "a"}}]
+    ok, errors = registry.validate_actions(actions, registry_dict=reg)
+    assert ok is True
+    assert errors == []
+
+
+def test_validate_actions_collects_all_errors():
+    reg = _fresh_registry()
+    actions = [
+        {"type": "fake_type", "confidence": 0.9, "payload": {}},
+        {"type": "nonexistent", "confidence": 0.5, "payload": {}},
+    ]
+    ok, errors = registry.validate_actions(actions, registry_dict=reg)
+    assert ok is False
+    assert len(errors) == 2
+
+
+def test_generate_prompt_catalogue_includes_type_and_risk():
+    reg = _fresh_registry()
+    catalogue = registry.generate_prompt_catalogue(registry_dict=reg)
+    assert "fake_type" in catalogue
+    assert "config" in catalogue
+    assert "foo" in catalogue
