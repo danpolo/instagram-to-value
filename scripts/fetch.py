@@ -22,8 +22,10 @@ Writes a summary JSON to stdout and exits non-zero on a real failure
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -234,8 +236,21 @@ def main():
     shortcode = extract_shortcode(args.url)
     media_dir = media_root / shortcode
 
-    track_info = try_video_track(args.url, shortcode, media_dir, cookies, archive,
-                                  keep_mp4=args.keep_mp4, keep_thumbnail=args.keep_thumbnail)
+    # yt-dlp's --cookies both READS and REWRITES the jar it is given, and the
+    # rewritten jar drops Instagram's `sessionid`. gallery-dl (the image track)
+    # requires `sessionid` and fails with "redirect to login page" without it,
+    # so sharing one jar between the two tools means every video fetch silently
+    # destroys the credential the next image fetch needs -- the real mechanism
+    # behind PLAN.md sec 8 risk 2's "recurring" dead sessions (Session 3).
+    # yt-dlp gets a disposable copy; the master jar is only ever read.
+    with tempfile.NamedTemporaryFile(prefix="ig-cookies-", suffix=".txt", delete=False) as tmp:
+        scratch_cookies = Path(tmp.name)
+    shutil.copy2(cookies, scratch_cookies)
+    try:
+        track_info = try_video_track(args.url, shortcode, media_dir, scratch_cookies, archive,
+                                      keep_mp4=args.keep_mp4, keep_thumbnail=args.keep_thumbnail)
+    finally:
+        scratch_cookies.unlink(missing_ok=True)
     if track_info is None:
         print(f"[fetch] {shortcode}: no video in post, switching to image/gallery-dl track", file=sys.stderr)
         track_info = try_image_track(args.url, shortcode, media_dir, cookies)
