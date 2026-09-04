@@ -38,6 +38,8 @@ import staging_lib
 registry.load_all_handlers()
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+# How many staged proposals /pending pushes per invocation, each with buttons.
+DEFAULT_PENDING_BATCH = 5
 DEFAULT_JOBS_ROOT = REPO_ROOT / "jobs"
 DEFAULT_STAGING_ROOT = REPO_ROOT / "staging"
 
@@ -118,11 +120,30 @@ async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not pending:
         await update.message.reply_text("Nothing pending.")
         return
-    lines = []
-    for shortcode in pending:
+    try:
+        limit = int(context.args[0]) if context.args else DEFAULT_PENDING_BATCH
+    except (TypeError, ValueError):
+        limit = DEFAULT_PENDING_BATCH
+    limit = max(1, min(limit, len(pending)))
+
+    # One message per proposal, each carrying the same button row a
+    # telegram-origin proposal gets (worker.notify_proposal_now). Backfill
+    # proposals are never pushed with buttons -- they only produce a digest --
+    # so before this, /pending was the sole route to them and it rendered a
+    # plain text list, leaving every swept proposal impossible to act on
+    # (Session 3 pilot: 36 pending, zero tappable). Batched because the
+    # backfill corpus is dozens of proposals and Telegram rate-limits bursts.
+    describe_fns = {t: h.describe for t, h in registry.REGISTRY.items()}
+    header = f"{len(pending)} pending — sending {limit}."
+    if limit < len(pending):
+        header += f" `/pending {min(len(pending), limit * 2)}` for more."
+    await update.message.reply_text(header)
+
+    for shortcode in pending[:limit]:
         proposal = staging_lib.read_proposal(shortcode, staging_root)
-        lines.append(f"{shortcode}: {proposal.get('summary', '')}")
-    await update.message.reply_text(f"{len(pending)} pending:\n" + "\n".join(lines))
+        text = staging_lib.format_proposal_message(proposal, describe_fns)
+        message = await update.message.reply_text(text, reply_markup=_proposal_buttons(shortcode))
+        staging_lib.set_message_id(shortcode, staging_root, message.message_id)
 
 
 def _proposal_buttons(shortcode):

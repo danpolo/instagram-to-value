@@ -255,3 +255,96 @@ def test_build_proposal_buttons_present_when_pending_exists():
     buttons = worker.build_proposal_buttons(actions)
     assert buttons is not None
     assert len(buttons) == 2
+
+
+# --- /pending must deliver tappable proposals, not a plain list ------------
+# Session 3 pilot found backfill-origin proposals unreachable: they are never
+# pushed with buttons (backfill only emits a digest), and /pending rendered a
+# text list, so 36 staged proposals had no route to approval.
+
+class _FakeMessage:
+    def __init__(self, recorder):
+        self._recorder = recorder
+        self.message_id = 1000 + len(recorder)
+
+    async def reply_text(self, text, reply_markup=None):
+        sent = _FakeMessage(self._recorder)
+        self._recorder.append({"text": text, "reply_markup": reply_markup})
+        return sent
+
+
+class _FakeUpdate:
+    def __init__(self, recorder, chat_id=42):
+        self.effective_chat = type("Chat", (), {"id": chat_id})()
+        self.message = _FakeMessage(recorder)
+
+
+class _FakeContext:
+    def __init__(self, staging_root, args=None, chat_id=42):
+        self.args = args
+        self.bot_data = {"staging_root": staging_root, "allowed_chat_id": chat_id}
+
+
+def _stage(tmp_path, shortcode, summary="a summary"):
+    import staging_lib
+    staging_lib.write_proposal(shortcode, tmp_path, {
+        "shortcode": shortcode, "origin": "backfill", "summary": summary,
+        "status": "pending", "message_id": None,
+        "resolver": {"status": "not_found", "tool_name": None, "url": None,
+                     "tier": None, "evidence": []},
+        "actions": [{"id": "a1", "type": "reference", "risk": "inert",
+                     "confidence": 0.9, "status": "pending",
+                     "payload": {"title": "T", "content": "C"},
+                     "decided_at": None, "result": None}],
+        "agent_calls": 1,
+    })
+
+
+def test_cmd_pending_attaches_buttons_to_each_proposal(tmp_path):
+    import asyncio
+    _stage(tmp_path, "AAA111")
+    _stage(tmp_path, "BBB222")
+    sent = []
+    asyncio.run(telegram_bot.cmd_pending(_FakeUpdate(sent), _FakeContext(tmp_path)))
+    # header + one message per proposal
+    assert len(sent) == 3
+    assert sent[0]["reply_markup"] is None          # header carries no buttons
+    proposals = sent[1:]
+    assert all(m["reply_markup"] is not None for m in proposals), \
+        "every staged proposal must be tappable"
+    labels = [b.text for row in proposals[0]["reply_markup"].inline_keyboard for b in row]
+    assert labels == ["✅ All", "☑️ Pick…", "📄 Show full", "❌ Discard"]
+
+
+def test_cmd_pending_batches_and_records_message_id(tmp_path):
+    import asyncio
+    import staging_lib
+    for i in range(7):
+        _stage(tmp_path, f"SC{i:04d}")
+    sent = []
+    asyncio.run(telegram_bot.cmd_pending(_FakeUpdate(sent), _FakeContext(tmp_path)))
+    # default batch of 5 => header + 5, and the header offers the next page,
+    # capped at however many actually exist (7 here, not 2x5)
+    assert len(sent) == 1 + telegram_bot.DEFAULT_PENDING_BATCH
+    assert "/pending 7" in sent[0]["text"]
+    # message_id is persisted so a later callback can edit the right message
+    first = staging_lib.list_pending(tmp_path)[0]
+    assert staging_lib.read_proposal(first, tmp_path)["message_id"] is not None
+
+
+def test_cmd_pending_explicit_count_overrides_batch(tmp_path):
+    import asyncio
+    for i in range(7):
+        _stage(tmp_path, f"SC{i:04d}")
+    sent = []
+    asyncio.run(telegram_bot.cmd_pending(_FakeUpdate(sent), _FakeContext(tmp_path, args=["7"])))
+    assert len(sent) == 8  # header + all 7
+
+
+def test_cmd_pending_rejects_foreign_chat(tmp_path):
+    import asyncio
+    _stage(tmp_path, "AAA111")
+    sent = []
+    update = _FakeUpdate(sent, chat_id=999)
+    asyncio.run(telegram_bot.cmd_pending(update, _FakeContext(tmp_path, chat_id=42)))
+    assert sent == []
