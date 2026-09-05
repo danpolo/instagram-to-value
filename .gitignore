@@ -8,7 +8,10 @@
 cookies/
 *.netscape
 .env
+.env.*
+!.env.example
 *.secret
+*.env
 
 # --- scraped output ----------------------------------------------------
 out/
@@ -37,6 +40,7 @@ out/
 # .yt-dlp-archive.txt is the same class of thing (an append-only "seen" list)
 # but was tracked at the initial commit by mistake -- untracked 2026-08-30.
 media/.yt-dlp-archive.txt
+media/
 extracted/
 jobs/
 staging/
@@ -54,3 +58,10 @@ logs/
 seen.txt
 __pycache__/
 *.pyc
+.venv/
+.coverage
+htmlcov/
+
+# --- local agent handoffs ---------------------------------------------
+# Operational notes can refer to private paths and work-in-progress context.
+handoffs/

@@ -289,6 +289,7 @@ def _stage(tmp_path, shortcode, summary="a summary"):
     import staging_lib
     staging_lib.write_proposal(shortcode, tmp_path, {
         "shortcode": shortcode, "origin": "backfill", "summary": summary,
+        "created_at": "2026-01-01T00:00:00+00:00",
         "status": "pending", "message_id": None,
         "resolver": {"status": "not_found", "tool_name": None, "url": None,
                      "tier": None, "evidence": []},
@@ -330,6 +331,24 @@ def test_cmd_pending_batches_and_records_message_id(tmp_path):
     # message_id is persisted so a later callback can edit the right message
     first = staging_lib.list_pending(tmp_path)[0]
     assert staging_lib.read_proposal(first, tmp_path)["message_id"] is not None
+
+
+def test_list_pending_preserves_creation_order_after_message_id_update(tmp_path):
+    import asyncio
+    import staging_lib
+    _stage(tmp_path, "FIRST01")
+    _stage(tmp_path, "SECOND2")
+    proposal = staging_lib.read_proposal("FIRST01", tmp_path)
+    proposal["created_at"] = "2026-01-01T00:00:00+00:00"
+    staging_lib.write_proposal("FIRST01", tmp_path, proposal)
+    proposal = staging_lib.read_proposal("SECOND2", tmp_path)
+    proposal["created_at"] = "2026-01-01T00:01:00+00:00"
+    staging_lib.write_proposal("SECOND2", tmp_path, proposal)
+
+    sent = []
+    asyncio.run(telegram_bot.cmd_pending(_FakeUpdate(sent), _FakeContext(tmp_path, args=["1"])))
+
+    assert staging_lib.list_pending(tmp_path) == ["FIRST01", "SECOND2"]
 
 
 def test_cmd_pending_explicit_count_overrides_batch(tmp_path):

@@ -56,7 +56,12 @@ def has_staging(shortcode, staging_root):
 
 
 def list_pending(staging_root):
-    """Shortcodes with status == 'pending', oldest proposal.json first."""
+    """Shortcodes with status == 'pending', oldest proposal creation first.
+
+    New proposals persist ``created_at``. Older proposal files fall back to
+    their filesystem timestamp, so changing mutable fields such as
+    ``message_id`` never reorders modern pending work.
+    """
     staging_root = Path(staging_root)
     if not staging_root.exists():
         return []
@@ -69,7 +74,10 @@ def list_pending(staging_root):
             except (json.JSONDecodeError, OSError):
                 continue
             if data.get("status") == "pending":
-                candidates.append((p.stat().st_mtime, d.name))
+                created_at = data.get("created_at")
+                if not created_at:
+                    created_at = datetime.fromtimestamp(p.stat().st_mtime, timezone.utc).isoformat()
+                candidates.append((created_at, d.name))
     candidates.sort()
     return [name for _, name in candidates]
 
