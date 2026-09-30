@@ -29,6 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "actions"))
 
 import agents_lib
+import enrich
+import explain
 import registry
 import resolve_tools
 import staging_lib
@@ -261,7 +263,8 @@ def _write_agent_error(shortcode, staging_root, agent_result):
     (d / "agent-error.txt").write_text(json.dumps(agent_result, indent=2, ensure_ascii=False))
 
 
-def interpret_post(shortcode, media_root, extracted_root, staging_root, logs_root, backend=None, origin="telegram"):
+def interpret_post(shortcode, media_root, extracted_root, staging_root, logs_root, backend=None, origin="telegram",
+                   enrich_fetchers=None):
     """The whole Component 4 pipeline for one post. Returns the written
     proposal dict, or raises RuntimeError on an unrecoverable agent/
     validation failure (caller -- worker.py -- treats that like any other
@@ -324,6 +327,15 @@ def interpret_post(shortcode, media_root, extracted_root, staging_root, logs_roo
         actions.append({"id": action_id, "type": raw["type"], "risk": handler.RISK,
                          "confidence": raw["confidence"], "payload": raw["payload"],
                          "status": status, "decided_at": None, "result": None})
+
+    # Evidence a person would look up before approving an install (repo age,
+    # stars, licence, directory standing, where the name came from). Persisted
+    # so /pending stays offline. Never raises; see scripts/enrich.py.
+    post_context = {"transcript": context["extracted"].get("text", ""),
+                    "caption": context["description"], "comments": context["comments"]}
+    enrich.enrich_actions(actions, post_context, fetchers=enrich_fetchers)
+    # Plain-English what/why per action for the flat /pending list (explain.py).
+    agent_calls += explain.explain_actions(actions, draft.get("summary", ""), post_context, backend=backend)
 
     proposal = {
         "shortcode": shortcode, "origin": origin, "backend": backend,

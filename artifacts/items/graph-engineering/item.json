@@ -1,0 +1,61 @@
+{
+  "id": "graph-engineering",
+  "slug": "graph-engineering",
+  "title": "Graph Engineering",
+  "quote": "My agent says done. It isn't.",
+  "description": "When a job needs a chat, a loop or a graph, and how to add a checker that never saw the work.",
+  "url": "https://claude.ai/code/artifact/bcbb16d8-f232-4b9d-b3f9-5ceeac85df83",
+  "artifact_uuid": "bcbb16d8-f232-4b9d-b3f9-5ceeac85df83",
+  "section": "The artefacts",
+  "section_id": "best",
+  "section_chip": "01",
+  "index": 1,
+  "color": "var(--pink)",
+  "dark_quote": true,
+  "image_name": "graph-engineering",
+  "image_url": "https://glitchcatclub.com/lab/img/graph-engineering.jpg",
+  "content_hash": "2783600ad74327b394a3c6f967d2b0613972d38db4909d4471d58cfca4054516",
+  "source_page": "https://glitchcatclub.com/lab",
+  "related_reels": [
+    {
+      "shortcode": "DcEBQNPNPzs",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260815",
+      "instagram_url": "https://www.instagram.com/p/DcEBQNPNPzs/"
+    },
+    {
+      "shortcode": "DcHG2kPtZZG",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260816",
+      "instagram_url": "https://www.instagram.com/p/DcHG2kPtZZG/"
+    },
+    {
+      "shortcode": "DcLR_gBNh0w",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260818",
+      "instagram_url": "https://www.instagram.com/p/DcLR_gBNh0w/"
+    },
+    {
+      "shortcode": "DcOCgBkNNjK",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260819",
+      "instagram_url": "https://www.instagram.com/p/DcOCgBkNNjK/"
+    },
+    {
+      "shortcode": "DcqtyTStpsw",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260830",
+      "instagram_url": "https://www.instagram.com/p/DcqtyTStpsw/"
+    },
+    {
+      "shortcode": "DcYcP6Jt1Dt",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260823",
+      "instagram_url": "https://www.instagram.com/p/DcYcP6Jt1Dt/"
+    }
+  ],
+  "first_seen": "2026-09-28T13:11:36.645969+00:00",
+  "last_updated": "2026-09-28T13:11:36.645969+00:00",
+  "local_dir": "artifacts/items/graph-engineering",
+  "local_image": "artifacts/items/graph-engineering/image.jpg"
+}

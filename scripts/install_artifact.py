@@ -12,13 +12,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "actions"))
+import _skills_root
+import benchmarks_lib
 import registry
 import staging_lib
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 ALLOWED_ROOTS = [
-    Path.home() / ".claude" / "skills",
+    # Skills are canonical in the Git-versioned ~/agent-skills repo and reach
+    # ~/.claude/skills only as symlinks that `agent-skills sync` maintains --
+    # so the writable root is the repo, not the agent's discovery directory
+    # (a target resolving through one of those symlinks lands here anyway,
+    # because validate_path resolves before it checks).
+    _skills_root.SKILLS_ROOT,
     Path.home() / ".claude" / "rules",
     Path.home() / ".claude" / "commands",
     Path.home() / ".claude" / "agents",
@@ -119,4 +126,18 @@ def install_action(action, shortcode, staging_root, resolution="install"):
     result = handler.install(payload, target, context)
     staging_lib.update_action_status(shortcode, staging_root, action["id"],
                                        "installed" if result["ok"] else "failed", result)
+    if result["ok"]:
+        _register_for_benchmark(action, shortcode, staging_root, result)
     return result
+
+
+def _register_for_benchmark(action, shortcode, staging_root, result):
+    """Benchmark gate B1: every successful install of a skill/repo lands in
+    state/benchmarks.json as not_benchmarked. Never fails the install -- the
+    artefact is already on disk and usable."""
+    try:
+        benchmarks_lib.update(benchmarks_lib.path_for(staging_root), lambda reg: benchmarks_lib.register_install(
+            reg, shortcode, action, result, benchmarks_lib.now_iso()))
+    except Exception as e:
+        print(f"[install_artifact] WARNING: {shortcode}/{action['id']} not registered for benchmarking: {e}",
+              file=sys.stderr)

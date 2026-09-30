@@ -1,0 +1,31 @@
+{
+  "id": "loop-lego",
+  "slug": "loop-lego",
+  "title": "Loop Lego",
+  "quote": "How do I build an agent system?",
+  "description": "Eighteen named agent loops, each with a picture and a prompt, that snap together into an autonomous system.",
+  "url": "https://claude.ai/code/artifact/ef81ca03-1956-4daf-ba3d-3b493e5346d6",
+  "artifact_uuid": "ef81ca03-1956-4daf-ba3d-3b493e5346d6",
+  "section": "The artefacts",
+  "section_id": "best",
+  "section_chip": "01",
+  "index": 5,
+  "color": "var(--gold)",
+  "dark_quote": false,
+  "image_name": "loop-lego",
+  "image_url": "https://glitchcatclub.com/lab/img/loop-lego.jpg",
+  "content_hash": "bbd2cdbf326339f4c1114c8a39b2d691c8334528659929e4eeb2e222d82489a8",
+  "source_page": "https://glitchcatclub.com/lab",
+  "related_reels": [
+    {
+      "shortcode": "DcimG9JtYGp",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260827",
+      "instagram_url": "https://www.instagram.com/p/DcimG9JtYGp/"
+    }
+  ],
+  "first_seen": "2026-09-28T13:11:36.645969+00:00",
+  "last_updated": "2026-09-28T13:11:36.645969+00:00",
+  "local_dir": "artifacts/items/loop-lego",
+  "local_image": "artifacts/items/loop-lego/image.jpg"
+}

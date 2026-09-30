@@ -52,3 +52,20 @@ file survives scrollback, diffs, and can be read directly by the next session.
 **Same message, second correction:** when the design left no open decisions,
 the next session should plan *and* implement without an approval gate between
 them. Say so explicitly in the handoff file.
+
+## 2026-09-08 — A conversational prompt needs a slot per prompt, not per user
+
+**What Dan found:** *"if i press 2 discard in a row it sends 2 why messages and
+then when i try to answer both i think that the answer goes just to the last one
+and the second answer is counted like a link to a new post."* Exactly right:
+`user_data["awaiting_reason_for"]` held one shortcode, so the second ❌ Discard
+overwrote the first. Answer #1 was filed against proposal #2, and answer #2 found
+an empty slot and fell through to the URL parser.
+
+**How to apply:** Telegram delivers a flat message stream — nothing links a reply
+to the question that provoked it unless you make it. Any bot prompt that expects
+a free-text answer must (a) name what it's asking about, (b) go out with
+`ForceReply` so the client addresses the answer, and (c) be stored keyed by its
+own `message_id`. When an answer can't be attributed, say so — never file it
+against an arbitrary open prompt. Dan taps buttons in bursts; assume every
+prompt can be outstanding more than once at a time.

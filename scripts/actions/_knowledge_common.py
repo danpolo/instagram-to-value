@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """Shared helpers for the knowledge-family handlers (reference, note) that
-install into ~/.claude/skills/captured-knowledge/ -- see that skill's
+install into the canonical captured-knowledge skill -- see that skill's
 SKILL.md for the on-disk layout this maintains."""
 import re
+import sys
 from pathlib import Path
 
-CAPTURED_KNOWLEDGE_ROOT = Path.home() / ".claude" / "skills" / "captured-knowledge"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _skills_root
+
+# Canonical, Git-versioned, and readable by Claude, Codex and Antigravity alike
+# once synced -- ~/.claude/skills/captured-knowledge is now just a symlink to it.
+CAPTURED_KNOWLEDGE_ROOT = _skills_root.SKILLS_ROOT / "captured-knowledge"
 INDEX_MARKER = "## Index"
 
 
@@ -30,3 +36,15 @@ def append_index_line(skill_md_path, line):
         text = text.rstrip() + f"\n\n{INDEX_MARKER}\n"
     text = text.rstrip("\n") + f"\n- {line}\n"
     skill_md_path.write_text(text)
+
+
+def ensure_linked(skill_root):
+    """Link captured-knowledge into the agent directories the first time a
+    capture creates it. Cheap afterwards (one stat), and a tmp_path root in
+    tests never reaches the CLI. Returns a note for the result line, or None."""
+    skill_root = Path(skill_root)
+    if skill_root != CAPTURED_KNOWLEDGE_ROOT:
+        return None
+    if (Path.home() / ".claude" / "skills" / skill_root.name).exists():
+        return None
+    return _skills_root.sync()

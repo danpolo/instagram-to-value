@@ -1,0 +1,23 @@
+{
+  "id": "your-own-design-system",
+  "slug": "your-own-design-system",
+  "title": "Your Own Design System",
+  "quote": "Why do my reels all look different?",
+  "description": "The design system I use for reels: tokens, five looks and the renderer, ready to make your own.",
+  "url": "https://claude.ai/code/artifact/2cca0cad-433d-442a-938c-5b6fb3148af4",
+  "artifact_uuid": "2cca0cad-433d-442a-938c-5b6fb3148af4",
+  "section": "Bonus",
+  "section_id": "more",
+  "section_chip": "02",
+  "index": 16,
+  "color": "var(--pink)",
+  "dark_quote": true,
+  "image_name": null,
+  "image_url": null,
+  "content_hash": "e3486bbc0ddab5e23ff734427af809fdd9e299f7203465570157e496ccc98887",
+  "source_page": "https://glitchcatclub.com/lab",
+  "related_reels": [],
+  "first_seen": "2026-09-28T13:11:36.645969+00:00",
+  "last_updated": "2026-09-28T13:11:36.645969+00:00",
+  "local_dir": "artifacts/items/your-own-design-system"
+}

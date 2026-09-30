@@ -158,8 +158,9 @@ across stages. A crash resumes from the last completed stage.
 
 ### Why a staging gate is non-negotiable
 
-Artifacts land in `~/.claude/skills/` and `~/.claude/rules/` — **global, loaded into
-every future Claude session on this machine.** An auto-installed bad skill silently
+Artifacts land in `~/agent-skills/skills/` (from where `agent-skills sync` links them
+into Claude, Codex *and* Antigravity) and `~/.claude/rules/` — **global, loaded into
+every future session on this machine.** An auto-installed bad skill silently
 degrades all downstream work and is hard to trace back. One Instagram reel should never
 be able to write a global rule unattended. Staging + one-tap Telegram approval costs you
 seconds per item and removes the entire failure class.
@@ -305,7 +306,7 @@ Phase 1/2:**
 
 | Type | Destination | Test for choosing it |
 |---|---|---|
-| skill | `~/.claude/skills/<name>/SKILL.md` | A repeatable *procedure* Claude should follow |
+| skill | `~/agent-skills/skills/<name>/SKILL.md`, then `agent-skills sync` | A repeatable *procedure* Claude should follow |
 | rule | `~/.claude/rules/<topic>.md` | An always-on *constraint* (matches existing `context7.md`) |
 | workflow | `.claude/workflows/<name>.md` | Multi-step orchestration across agents |
 | reference | `~/.claude/projects/-home-dan/memory/<slug>.md` + MEMORY.md line | A *fact* or pointer — fits the existing memory schema |
@@ -640,8 +641,8 @@ to `staging/`, and sends you a summary with an approve/reject action.
 - §4's **tier 3 (frame OCR) moves last** and re-fetches the mp4 lazily, so the
   default run stays audio-only.
 - Knowledge installs to a **global on-demand skill**,
-  `~/.claude/skills/captured-knowledge/`; `~/.claude/rules/` stays reserved for
-  always-on constraints.
+  `~/agent-skills/skills/captured-knowledge/` (symlinked into every agent by
+  `agent-skills sync`); `~/.claude/rules/` stays reserved for always-on constraints.
 - Job `origin` drives both notification style (immediate vs digest) and
   auto-discard permission (backfill only, never a hand-sent URL).
 - **Exec-tier actions run on approval** (Dan's call), with the literal command
@@ -689,6 +690,61 @@ together in `scripts/worker.py` since #7 and #8 share a root cause (open item
   only made `--once` safe to run unattended for a long drain, which is what
   the 49-job backfill needed.
 
+
+**Phase 4b — handlers — 🔨 IN PROGRESS.** Backlog item #1 of
+`docs/superpowers/handoffs/SESSION-4-phase4b-handlers.md` is done.
+- `skill_install` (`scripts/actions/skill_install.py`, RISK exec) — the pilot's
+  largest gap: ~12 actions across 9 posts, found simultaneously logged
+  (4× `unsupported`), force-fitted into `package_install` (3×) and force-fitted
+  into `git_repo` (7×). Payload is `{name, source}` with `source` pinned by a
+  schema pattern to a bare `owner/repo`, the form `npx skills add` resolves
+  without a URL — which is exactly what the `unsupported` rationales said was
+  missing, and it also fixes the force-fit's inconsistent key (`package: "skills"`
+  the CLI vs `package: "pbakaus/impeccable"` the skill) that broke dedup.
+- **`install()` pins an absolute `cwd`** — a fresh temp staging directory per run.
+  The force-fit path did not: `package_install.install()` runs `shell=True` with no
+  `cwd=`, so `npx skills add` installed relative to wherever the worker was started
+  and still returned `ok: true` — that is how `scripts/.claude/skills/` got created
+  inside this repo. Regression-tested by asserting the `cwd=` passed to
+  `subprocess.run`, and by asserting exit 0 with nothing on disk fails the action.
+- **One canonical skill repo (2026-09-11).** Dan moved to a single
+  source of truth for skills: `~/agent-skills/skills/<name>/`, a Git repo whose
+  `agent-skills sync` fans each skill out as an individual symlink into
+  `~/.claude/skills`, `~/.codex/skills`, `~/.gemini/config/skills` and
+  `~/.agents/skills`. Writing into `~/.claude/skills/` — what `skill`, `note`,
+  `reference` and `skill_install` all did — now means unversioned, Claude-only,
+  and liable to be rearranged by the next sync. `scripts/actions/_skills_root.py`
+  holds the canonical root and the sync call; every skill-writing handler targets
+  it and then syncs, and `install_artifact.ALLOWED_ROOTS` allows the repo instead
+  of the agent directory (a target reached *through* one of the symlinks still
+  passes, because `validate_path` resolves before it checks).
+  `skill_install` cannot ask `npx skills add` for that destination, so it stages
+  the install in a temp dir (`--copy --skill '*' --agent claude-code`), moves the
+  downloaded skill folders into the canonical repo — never overwriting a name that
+  is already there — and syncs. `captured-knowledge` was migrated with its facts
+  intact and is now a symlink in each agent directory.
+- **Name-only installs (2026-09-08, `38ec34e`).** Dan read the staged bullets and
+  pointed out they still said the system cannot install a skill *by name*, which
+  was true: `source` was required. It is now optional, and
+  `scripts/actions/_skill_directory.py` resolves a bare name against the
+  skills.sh directory. Uniqueness is worthless there — an exact-name search for
+  `impeccable` matches 73 distinct owners — so a name resolves only when one
+  `owner/repo` clears 1,000 installs **and** beats the runner-up 10×. Measured:
+  resolves Impeccable (263×), Taste (151×), last30days (1,337×), CLI-Anything
+  (36×); refuses Claude Video (13 installs) and Crucible (9), both correctly.
+  Unresolved names are refused with their candidates, never guessed — exec risk.
+  Riding along: `generate_prompt_catalogue()` now advertises optional payload
+  fields as `field?`, and `_report_install_results` surfaces a handler `note` so
+  an exec install reports which repo actually ran.
+- **Discard-reason routing fixed (`0b785b3`).** Two ❌ Discard taps shared one
+  `user_data` slot, so answer #1 was filed against proposal #2 and answer #2 fell
+  through to the URL parser. Prompts are now keyed by their own `message_id` and
+  sent with `ForceReply`. Found by Dan during the pending sweep.
+- 205 → 214 → **235 unit tests**, all passing.
+- **Not done:** backlog items #2 `binary_release`, #3 `claude_plugin_install`,
+  #4 `update_existing`. Item #4 is the one with a real design question attached,
+  and 2026-09-08 gave it a *second* consumer — see §9 open item #11.
+
 ---
 
 ## 8. Open risks
@@ -720,8 +776,9 @@ together in `scripts/worker.py` since #7 and #8 share a root cause (open item
 
 ## 9. Session state — 2026-08-25
 
-Nothing is committed anywhere: **this directory is not a git repo.** `.gitignore` is
-precautionary, for whenever `git init` happens.
+**Updated 2026-09-08: this directory *is* a git repo**, on `main`, with a pre-push hook
+installed (commit locally; Dan pushes). The line that used to sit here — "not a git repo" —
+was stale and had already misled one session into re-planning committed work.
 
 ### Already on disk (do not re-fetch)
 
@@ -749,9 +806,13 @@ accelerate, librosa, soundfile, and the downloaded `Qwen/Qwen3-ASR-1.7B-hf` weig
 | 4 | `discover.sh` is superseded | session | **Verified 2026-08-30, note still accurate.** It's the search-engine-index anonymous route (`lite.duckduckgo.com` queries, `grep`s `instagram.com/(p\|reel)/` out of the results) — no auth, no enumeration API. Keep as a no-cookie fallback; do not mistake it for the real enumerator (`discover_account.py`). |
 | 5 | ~~`~/.local/venvs/instaloader` unused~~ | — | **Resolved 2026-08-30.** Deleted (29 MB, was only installed to prove the anonymous wall). |
 | 6 | ~~IG account flagged for automation~~ | — | **Resolved 2026-08-26.** Account cooled down, cookies re-exported (mode 600) — see facts below for what actually went into fixing this. Throttled scanning (`scripts/scan_carousel.py`) subsequently ran 26+ probes with no further auth issues. |
-| 7 | A `notify()` failure kills the worker mid-job | session | `worker.py:87` `note()` is unwrapped at lines 89/100/129, and `telegram_notify.send()` raises on error. Deliberate for `--once` (its docstring argues a worker that can't notify should be noticed); wrong for Phase 5's `while True` daemon, where a transient Telegram blip takes down a run meant to last days. **Fix in Phase 5.** |
-| 8 | Jobs orphaned in `jobs/running/` are never recovered | session | `drain_once` only iterates `list_queued` (`worker.py:133`); nothing ever reads `running/` back. Any interruption between `worker.py:140` and `:128` — OOM, reboot, or bug #7 — strands the job permanently. Compounds with risk #1: ASR peaks at 6.9 GB of ~9 GB, so mid-job OOM is expected, not hypothetical. **Fix in Phase 5.** |
-| 9 | Bugs #7 and #8 compound | session | The `note()` at `worker.py:89` fires *before* fetch, so a notify error there orphans the job (#8). The one at `:129` fires after `move_job`, so state stays correct and only the message is lost. Same root, different severity — fix #7 and #8 together. |
+| 7 | ~~A `notify()` failure kills the worker mid-job~~ | — | **Done 2026-08-30** in `a730ec6` (Phase 5a), verified still in place 2026-09-08: `safe_notify()` (#7), `requeue_orphans()` (#8), both together (#9) in `scripts/worker.py`, covered by `scripts/test_ingest.py:96-128`. The table said "Fix in Phase 5" for 9 days after the fix landed. |
+| 8 | ~~Jobs orphaned in `jobs/running/` are never recovered~~ | — | **Done 2026-08-30** in `a730ec6` (Phase 5a), verified still in place 2026-09-08: `safe_notify()` (#7), `requeue_orphans()` (#8), both together (#9) in `scripts/worker.py`, covered by `scripts/test_ingest.py:96-128`. The table said "Fix in Phase 5" for 9 days after the fix landed. |
+| 10 | Two proposals still carry the broken `npx skills add` force-fit | session | `Db9fLwkpvFC` (pending, `package: "skills"` — the CLI, not the skill) and `DboafZtRTgd` (marked **installed** with `ok/exit 0`, `path: null`, **artifact not locatable on disk**). Migration rule + evidence: `docs/superpowers/handoffs/SESSION-4-phase4b-handlers.md`, bug 2. |
+| 11 | The corpus knows sources skills.sh does not | session | Name-only `skill_install` correctly refuses "Claude Video", while `Dboal_gxvyh` already holds `git_repo bradautomates/claude-video` for the same skill. Belongs to backlog #4 `update_existing`: one cross-post identity index, two consumers (dedup **and** resolution). See SESSION-4 doc §4. |
+| 12 | ~~Proposals carry no evidence about what they want to install~~ | — | **Done 2026-09-15** in `bc1c635`. `scripts/enrich.py` persists provenance (video/caption/comment/agent_inferred + comment author), GitHub stars/contributors/licence/push date, skills.sh standing, README head and flags into each install action; `scripts/explain.py` caches an agent-written what/why per pending action. `/pending` was then redesigned at Dan's request: one card per action across posts (what · why · stars · one plain ⚠️ line), Approve/Skip per card, duplicates merged by repo, "already installed from another post" warning. New-post notifications stay per post with the same cards. Detail: `docs/superpowers/handoffs/SESSION-6-provenance-enrichment.md` § Status. `DbJvV3BpnO6` `a3` ended with 4 flags, not 5 — skills.sh now lists page-foundry (6 installs). |
+| 13 | ~~Nothing proves an installed skill works~~ | — | **Built 2026-09-15** (Phase B). `scripts/benchmarks_lib.py` registry (`state/benchmarks.json`, registered on every successful install + backfill: 5 records), `scripts/benchmark.py` draft/run/judge with runs archived in `benchmarks/<name>/runs/`, `scripts/quota_router.py` picks the quota most ahead of weekly pace from QuotaPulse (claude/codex/agy-gemini/agy-3p). Fail → one Telegram message with Remove/Keep; `/benchmarks`. Worker benchmarks one due artefact when idle. First real run: impeccable passed 3/3 (agy-gemini, 5 calls, 192 s). See SESSION-7 doc status. |
+| 9 | ~~Bugs #7 and #8 compound~~ | — | **Done 2026-08-30** in `a730ec6` (Phase 5a), verified still in place 2026-09-08: `safe_notify()` (#7), `requeue_orphans()` (#8), both together (#9) in `scripts/worker.py`, covered by `scripts/test_ingest.py:96-128`. The table said "Fix in Phase 5" for 9 days after the fix landed. |
 
 ### Facts established this session (do not re-derive)
 
@@ -984,3 +1045,36 @@ accelerate, librosa, soundfile, and the downloaded `Qwen/Qwen3-ASR-1.7B-hf` weig
   — the fix would be a small standalone script reusing gallery-dl's
   `InstagramGraphqlAPI`/`InstagramRestAPI` classes to hand-extract comment
   edges from the raw response, at the cost noted above.
+
+### Facts established 2026-09-08 (Phase 4b name-resolution session)
+
+- **`handoffs/` is gitignored** (`.gitignore:67`, "local agent handoffs"). The
+  tracked session record is `docs/superpowers/handoffs/SESSION-*.md`. A handoff
+  written into `handoffs/` survives on disk but never reaches a commit — this
+  session appended to `handoffs/2026-09-08-phase4b-skill-install.md` and got
+  "nothing to commit, working tree clean". Write durable findings to the
+  `docs/superpowers/handoffs/` file that owns the topic.
+- **Both long-running services must be restarted to pick up a code change**, and
+  neither does it on its own. They run as the root process of tmux sessions
+  `itv-bot` and `itv-worker` (no shell in the pane, so `send-keys` does nothing —
+  `kill-session` then `new-session -d -c <repo> '<cmd> >> logs/<f>.log 2>&1'`).
+  Restarting the bot **drops in-memory `user_data`**, so any open "why discard …?"
+  prompt becomes unanswerable and must be re-tapped; queued Telegram updates
+  themselves survive, since long-polling replays them.
+  As of this session the worker also appends to `logs/worker.log` — before, its
+  output went only to the pane's pty and died with the session.
+- **skills.sh has a JSON search endpoint the CLI does not usefully expose.**
+  `GET https://skills.sh/api/search?q=<query>` returns
+  `{searchType, skills:[{id, skillId, name, source, installs}]}`, where `source`
+  is the `owner/repo` `npx skills add` takes. The CLI's own `npx skills find
+  impeccable` printed "No skills found" for a query the API answers with 100
+  hits, so **do not shell out to the CLI for programmatic lookup**. Two traps in
+  the data: `searchType` falls back to `semantic` when nothing matches
+  lexically (topical noise, not matches), and some `source` values are
+  aggregator hosts (`smithery.ai`, `wai-stacks.vercel.app`) that are not
+  installable and must be filtered.
+- **A green install record in this corpus is not evidence anything installed.**
+  `DboafZtRTgd` a1 holds `ok: true, exit_code: 0` from 2026-09-02 and the
+  artifact is nowhere on disk (`~/.claude/skills/`, `~/.agents/skills/`, and the
+  `~/tools/impeccable*` clones all checked). `path: null` in the record means it
+  cannot even say where to look. See §9 open item #10.

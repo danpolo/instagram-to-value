@@ -1,0 +1,23 @@
+{
+  "id": "the-receiver-decides",
+  "slug": "the-receiver-decides",
+  "title": "The Receiver Decides",
+  "quote": "Can my agent be talked into things?",
+  "description": "Lessons from the Mind Viruses paper and the OpenAI and Hugging Face incident report: who gets to be believed in your context.",
+  "url": "https://claude.ai/code/artifact/d5c7e5ff-aca7-4228-ab24-37524d517f1c",
+  "artifact_uuid": "d5c7e5ff-aca7-4228-ab24-37524d517f1c",
+  "section": "Bonus",
+  "section_id": "more",
+  "section_chip": "02",
+  "index": 14,
+  "color": "var(--mint)",
+  "dark_quote": false,
+  "image_name": null,
+  "image_url": null,
+  "content_hash": "83f05da80c53c4b2e4be33f1913a3d512994e6720f809922763a90a309c5a4e1",
+  "source_page": "https://glitchcatclub.com/lab",
+  "related_reels": [],
+  "first_seen": "2026-09-28T13:11:36.645969+00:00",
+  "last_updated": "2026-09-28T13:11:36.645969+00:00",
+  "local_dir": "artifacts/items/the-receiver-decides"
+}

@@ -1,0 +1,30 @@
+{
+  "id": "three-habits",
+  "slug": "three-habits",
+  "title": "Three Habits",
+  "quote": "My vibe-coded app keeps breaking.",
+  "description": "Tests first, reuse before rebuild, and have the agent draw the process.",
+  "url": "https://claude.ai/code/artifact/480e7a25-ad53-4dd3-a240-8dd8a7f781db",
+  "artifact_uuid": "480e7a25-ad53-4dd3-a240-8dd8a7f781db",
+  "section": "Bonus",
+  "section_id": "more",
+  "section_chip": "02",
+  "index": 11,
+  "color": "var(--pink)",
+  "dark_quote": true,
+  "image_name": null,
+  "image_url": null,
+  "content_hash": "1378a98b0cbbf1254dec9d6b933c4fafc6b9d920e81a975488903f615f9b24bc",
+  "source_page": "https://glitchcatclub.com/lab",
+  "related_reels": [
+    {
+      "shortcode": "Dbk11QVtZB8",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260803",
+      "instagram_url": "https://www.instagram.com/p/Dbk11QVtZB8/"
+    }
+  ],
+  "first_seen": "2026-09-28T13:11:36.645969+00:00",
+  "last_updated": "2026-09-28T13:11:36.645969+00:00",
+  "local_dir": "artifacts/items/three-habits"
+}

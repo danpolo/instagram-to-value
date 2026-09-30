@@ -1,0 +1,66 @@
+{
+  "id": "ste-tested",
+  "slug": "ste-tested",
+  "title": "STE, Tested",
+  "quote": "Does how I write prompts matter?",
+  "description": "A controlled test of STE-style prompting against the alternatives.",
+  "url": "https://claude.ai/code/artifact/7e14d97c-7d12-421e-ad68-1f1f4c22b954",
+  "artifact_uuid": "7e14d97c-7d12-421e-ad68-1f1f4c22b954",
+  "section": "Bonus",
+  "section_id": "more",
+  "section_chip": "02",
+  "index": 13,
+  "color": "var(--blue)",
+  "dark_quote": false,
+  "image_name": null,
+  "image_url": null,
+  "content_hash": "266e3cdf5b2ac53dd756bf0a5dff24e5c50a6ca2c9fb0c077f5323860e7945fe",
+  "source_page": "https://glitchcatclub.com/lab",
+  "related_reels": [
+    {
+      "shortcode": "DcEBQNPNPzs",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260815",
+      "instagram_url": "https://www.instagram.com/p/DcEBQNPNPzs/"
+    },
+    {
+      "shortcode": "DcHG2kPtZZG",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260816",
+      "instagram_url": "https://www.instagram.com/p/DcHG2kPtZZG/"
+    },
+    {
+      "shortcode": "DcimG9JtYGp",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260827",
+      "instagram_url": "https://www.instagram.com/p/DcimG9JtYGp/"
+    },
+    {
+      "shortcode": "DclKZARteCP",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260828",
+      "instagram_url": "https://www.instagram.com/p/DclKZARteCP/"
+    },
+    {
+      "shortcode": "DcOCgBkNNjK",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260819",
+      "instagram_url": "https://www.instagram.com/p/DcOCgBkNNjK/"
+    },
+    {
+      "shortcode": "DcqtyTStpsw",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260830",
+      "instagram_url": "https://www.instagram.com/p/DcqtyTStpsw/"
+    },
+    {
+      "shortcode": "DcYcP6Jt1Dt",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260823",
+      "instagram_url": "https://www.instagram.com/p/DcYcP6Jt1Dt/"
+    }
+  ],
+  "first_seen": "2026-09-28T13:11:36.645969+00:00",
+  "last_updated": "2026-09-28T13:11:36.645969+00:00",
+  "local_dir": "artifacts/items/ste-tested"
+}

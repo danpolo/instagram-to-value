@@ -17,7 +17,7 @@ REGISTRY = {}
 # Extended in Phase 4b (Session 4) as new handlers are added -- design spec's
 # "pilot loop" turns logs/unsupported_actions.jsonl into the priority order.
 HANDLER_MODULE_NAMES = [
-    "package_install", "shell_snippet", "git_repo", "calendar_event",
+    "package_install", "skill_install", "shell_snippet", "git_repo", "calendar_event",
     "rule", "skill", "reference", "note", "discard", "unsupported",
 ]
 
@@ -111,13 +111,19 @@ def validate_actions(actions, registry_dict=None):
 
 def generate_prompt_catalogue(registry_dict=None):
     """Builds the agent prompt's action-type menu from the registry -- one
-    line per type: risk tier, required payload fields, and the handler
-    module's one-line docstring."""
+    line per type: risk tier, payload fields, and the handler module's
+    one-line docstring. Optional fields (declared in SCHEMA['types'] but not
+    SCHEMA['required']) are listed with a trailing '?' -- without them the
+    prompt could not tell the classifier that e.g. skill_install accepts a
+    `source` when the post happens to link one, only that it may omit it."""
     target_dict = REGISTRY if registry_dict is None else registry_dict
     lines = []
     for action_type in sorted(target_dict):
         handler = target_dict[action_type]
-        required = handler.SCHEMA.get("required", [])
+        required = list(handler.SCHEMA.get("required", []))
+        optional = [f"{field}?" for field in handler.SCHEMA.get("types", {})
+                     if field not in required]
         doc = (handler.__doc__ or "").strip().splitlines()[0] if handler.__doc__ else ""
-        lines.append(f"- `{action_type}` (risk: {handler.RISK}, payload: {{{', '.join(required)}}}) — {doc}")
+        fields = ", ".join(required + optional)
+        lines.append(f"- `{action_type}` (risk: {handler.RISK}, payload: {{{fields}}}) — {doc}")
     return "\n".join(lines)

@@ -1,0 +1,30 @@
+{
+  "id": "the-team-board",
+  "slug": "the-team-board",
+  "title": "The Team Board",
+  "quote": "Subagents or a team?",
+  "description": "Claude Code agent teams, the shared task board, and when a teammate beats a subagent.",
+  "url": "https://claude.ai/code/artifact/89b75ded-bced-4e34-9f24-b4e78cac1783",
+  "artifact_uuid": "89b75ded-bced-4e34-9f24-b4e78cac1783",
+  "section": "Bonus",
+  "section_id": "more",
+  "section_chip": "02",
+  "index": 12,
+  "color": "var(--yellow)",
+  "dark_quote": false,
+  "image_name": null,
+  "image_url": null,
+  "content_hash": "192380af2101b2be88e1a46a2edaace67996cc426b00a02a9a9e9d718bb26cf2",
+  "source_page": "https://glitchcatclub.com/lab",
+  "related_reels": [
+    {
+      "shortcode": "DcimG9JtYGp",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260827",
+      "instagram_url": "https://www.instagram.com/p/DcimG9JtYGp/"
+    }
+  ],
+  "first_seen": "2026-09-28T13:11:36.645969+00:00",
+  "last_updated": "2026-09-28T13:11:36.645969+00:00",
+  "local_dir": "artifacts/items/the-team-board"
+}

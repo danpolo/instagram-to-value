@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from registry import register
-from _knowledge_common import CAPTURED_KNOWLEDGE_ROOT, append_index_line, slug
+from _knowledge_common import CAPTURED_KNOWLEDGE_ROOT, append_index_line, ensure_linked, slug
 
 TYPE = "reference"
 RISK = "inert"
@@ -40,9 +40,11 @@ def install(payload, target, context=None):
     target.write_text(payload["content"])
     # Skill root derived from `target` itself (target == <root>/facts/<slug>.md),
     # not the module-level constant -- keeps this testable against a tmp_path
-    # target without ever touching the real ~/.claude/skills/captured-knowledge/.
+    # target without ever touching the real captured-knowledge skill.
     append_index_line(target.parent.parent / "SKILL.md", f"{payload['title']} — facts/{target.name}")
-    return {"ok": True, "path": str(target), "command": None, "exit_code": None, "output": None, "error": None}
+    note = ensure_linked(target.parent.parent)
+    return {"ok": True, "path": str(target), "command": None, "exit_code": None,
+            "output": None, "note": note, "error": None}
 
 
 register(sys.modules[__name__])

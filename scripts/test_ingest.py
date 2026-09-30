@@ -263,26 +263,31 @@ def test_build_proposal_buttons_present_when_pending_exists():
 # text list, so 36 staged proposals had no route to approval.
 
 class _FakeMessage:
-    def __init__(self, recorder):
+    def __init__(self, recorder, text=None, reply_to=None):
         self._recorder = recorder
         self.message_id = 1000 + len(recorder)
+        self.text = text
+        self.reply_to_message = reply_to
 
     async def reply_text(self, text, reply_markup=None):
         sent = _FakeMessage(self._recorder)
-        self._recorder.append({"text": text, "reply_markup": reply_markup})
+        self._recorder.append({"text": text, "reply_markup": reply_markup,
+                               "message_id": sent.message_id})
         return sent
 
 
 class _FakeUpdate:
-    def __init__(self, recorder, chat_id=42):
+    def __init__(self, recorder, chat_id=42, text=None, reply_to=None):
         self.effective_chat = type("Chat", (), {"id": chat_id})()
-        self.message = _FakeMessage(recorder)
+        self.message = _FakeMessage(recorder, text=text, reply_to=reply_to)
 
 
 class _FakeContext:
-    def __init__(self, staging_root, args=None, chat_id=42):
+    def __init__(self, staging_root, args=None, chat_id=42, jobs_root=None):
         self.args = args
-        self.bot_data = {"staging_root": staging_root, "allowed_chat_id": chat_id}
+        self.bot_data = {"staging_root": staging_root, "allowed_chat_id": chat_id,
+                         "jobs_root": jobs_root or staging_root}
+        self.user_data = {}
 
 
 def _stage(tmp_path, shortcode, summary="a summary"):
@@ -301,36 +306,73 @@ def _stage(tmp_path, shortcode, summary="a summary"):
     })
 
 
-def test_cmd_pending_attaches_buttons_to_each_proposal(tmp_path):
+def test_cmd_pending_sends_one_card_per_action_not_per_post(tmp_path):
     import asyncio
     _stage(tmp_path, "AAA111")
     _stage(tmp_path, "BBB222")
     sent = []
     asyncio.run(telegram_bot.cmd_pending(_FakeUpdate(sent), _FakeContext(tmp_path)))
-    # header + one message per proposal
+    # header + one message per pending action, across posts
     assert len(sent) == 3
     assert sent[0]["reply_markup"] is None          # header carries no buttons
-    proposals = sent[1:]
-    assert all(m["reply_markup"] is not None for m in proposals), \
-        "every staged proposal must be tappable"
-    labels = [b.text for row in proposals[0]["reply_markup"].inline_keyboard for b in row]
-    assert labels == ["✅ All", "☑️ Pick…", "📄 Show full", "❌ Discard"]
+    cards = sent[1:]
+    buttons = [b for row in cards[0]["reply_markup"].inline_keyboard for b in row]
+    assert [b.text for b in buttons] == ["✅ Approve", "❌ Skip"]
+    # the post stays linked internally (callback data), not in the text
+    assert [b.callback_data for b in buttons] == ["act_ok:AAA111:a1", "act_skip:AAA111:a1"]
+    assert "AAA111" not in cards[0]["text"]
+    assert "Why: a summary" in cards[0]["text"]
 
 
-def test_cmd_pending_batches_and_records_message_id(tmp_path):
+def test_cmd_pending_batches_actions(tmp_path):
     import asyncio
-    import staging_lib
-    for i in range(7):
+    for i in range(telegram_bot.DEFAULT_PENDING_BATCH + 2):
         _stage(tmp_path, f"SC{i:04d}")
     sent = []
     asyncio.run(telegram_bot.cmd_pending(_FakeUpdate(sent), _FakeContext(tmp_path)))
-    # default batch of 5 => header + 5, and the header offers the next page,
-    # capped at however many actually exist (7 here, not 2x5)
+    total = telegram_bot.DEFAULT_PENDING_BATCH + 2
     assert len(sent) == 1 + telegram_bot.DEFAULT_PENDING_BATCH
-    assert "/pending 7" in sent[0]["text"]
-    # message_id is persisted so a later callback can edit the right message
-    first = staging_lib.list_pending(tmp_path)[0]
-    assert staging_lib.read_proposal(first, tmp_path)["message_id"] is not None
+    assert f"/pending {total}" in sent[0]["text"]
+
+
+class _FakeQuery:
+    def __init__(self, recorder, data, chat_id=42):
+        self.data = data
+        self.message = _FakeMessage(recorder)
+        self.message.chat_id = chat_id
+        self.markup_cleared = False
+
+    async def answer(self, *a, **kw):
+        pass
+
+    async def edit_message_reply_markup(self, reply_markup=None):
+        self.markup_cleared = reply_markup is None
+
+
+def test_skip_callback_marks_only_that_action(tmp_path):
+    import asyncio
+    import staging_lib
+    _stage(tmp_path, "AAA111")
+    sent = []
+    query = _FakeQuery(sent, "act_skip:AAA111:a1")
+    update = type("U", (), {"callback_query": query})()
+    asyncio.run(telegram_bot.handle_callback(update, _FakeContext(tmp_path)))
+    assert staging_lib.read_proposal("AAA111", tmp_path)["actions"][0]["status"] == "skipped"
+    assert query.markup_cleared
+    assert sent and "Skipped" in sent[0]["text"]
+
+
+def test_callback_on_already_decided_action_does_nothing(tmp_path):
+    import asyncio
+    import staging_lib
+    _stage(tmp_path, "AAA111")
+    staging_lib.update_action_status("AAA111", tmp_path, "a1", "installed", {"ok": True})
+    sent = []
+    query = _FakeQuery(sent, "act_ok:AAA111:a1")
+    update = type("U", (), {"callback_query": query})()
+    asyncio.run(telegram_bot.handle_callback(update, _FakeContext(tmp_path)))
+    assert staging_lib.read_proposal("AAA111", tmp_path)["actions"][0]["status"] == "installed"
+    assert "already" in sent[0]["text"]
 
 
 def test_list_pending_preserves_creation_order_after_message_id_update(tmp_path):
@@ -367,3 +409,203 @@ def test_cmd_pending_rejects_foreign_chat(tmp_path):
     update = _FakeUpdate(sent, chat_id=999)
     asyncio.run(telegram_bot.cmd_pending(update, _FakeContext(tmp_path, chat_id=42)))
     assert sent == []
+
+
+# --- Two ❌ Discard taps in a row must not cross their reason prompts ------
+# Found live in the Session 4 pending sweep: both prompts said only "why?" and
+# shared ONE user_data slot, so the second tap overwrote the first shortcode.
+# The first answer was filed against the SECOND proposal, and the second answer
+# found no slot at all and fell through to the URL parser as a new post.
+
+class _FakeCallbackQuery:
+    def __init__(self, recorder, data, chat_id=42):
+        self.data = data
+        self.message = _FakeMessage(recorder)
+        self.message.chat_id = chat_id
+        self.answers = []
+
+    async def answer(self, text=None):
+        self.answers.append(text)
+
+
+class _FakeCallbackUpdate:
+    def __init__(self, recorder, data, chat_id=42):
+        self.callback_query = _FakeCallbackQuery(recorder, data, chat_id)
+
+
+def _reply_to(message_id):
+    return type("M", (), {"message_id": message_id})()
+
+
+def _discard_log(staging_root, *shortcodes):
+    path = Path(staging_root).parent / "logs" / "discarded.jsonl"
+    if not path.exists():
+        return []
+    records = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return [r for r in records if r["shortcode"] in shortcodes]
+
+
+def test_two_discards_route_each_reason_to_its_own_proposal(tmp_path):
+    import asyncio
+    _stage(tmp_path, "DISCA01")
+    _stage(tmp_path, "DISCB02")
+    sent = []
+    ctx = _FakeContext(tmp_path)
+
+    asyncio.run(telegram_bot.handle_callback(_FakeCallbackUpdate(sent, "discard:DISCA01"), ctx))
+    asyncio.run(telegram_bot.handle_callback(_FakeCallbackUpdate(sent, "discard:DISCB02"), ctx))
+
+    # each prompt must name its own proposal, or they are indistinguishable
+    assert "DISCA01" in sent[0]["text"]
+    assert "DISCB02" in sent[1]["text"]
+
+    asyncio.run(telegram_bot.handle_message(
+        _FakeUpdate(sent, text="not useful", reply_to=_reply_to(sent[0]["message_id"])), ctx))
+    asyncio.run(telegram_bot.handle_message(
+        _FakeUpdate(sent, text="already have it", reply_to=_reply_to(sent[1]["message_id"])), ctx))
+
+    reasons = {r["shortcode"]: r["reason"] for r in _discard_log(tmp_path, "DISCA01", "DISCB02")}
+    assert reasons == {"DISCA01": "not useful", "DISCB02": "already have it"}
+
+
+def test_lone_discard_reason_needs_no_explicit_reply(tmp_path):
+    import asyncio
+    _stage(tmp_path, "DISCC03")
+    sent = []
+    ctx = _FakeContext(tmp_path)
+
+    asyncio.run(telegram_bot.handle_callback(_FakeCallbackUpdate(sent, "discard:DISCC03"), ctx))
+    asyncio.run(telegram_bot.handle_message(_FakeUpdate(sent, text="low signal"), ctx))
+
+    assert [(r["shortcode"], r["reason"]) for r in _discard_log(tmp_path, "DISCC03")] == \
+        [("DISCC03", "low signal")]
+    assert not ctx.user_data.get("awaiting_reason_for")
+
+
+def test_ambiguous_reason_is_not_consumed_and_asks_which(tmp_path):
+    import asyncio
+    _stage(tmp_path, "DISCD04")
+    _stage(tmp_path, "DISCE05")
+    sent = []
+    ctx = _FakeContext(tmp_path)
+
+    asyncio.run(telegram_bot.handle_callback(_FakeCallbackUpdate(sent, "discard:DISCD04"), ctx))
+    asyncio.run(telegram_bot.handle_callback(_FakeCallbackUpdate(sent, "discard:DISCE05"), ctx))
+    asyncio.run(telegram_bot.handle_message(_FakeUpdate(sent, text="meh"), ctx))
+
+    assert _discard_log(tmp_path, "DISCD04", "DISCE05") == [], \
+        "an unaddressed reason must not be filed against an arbitrary proposal"
+    assert "DISCD04" in sent[-1]["text"] and "DISCE05" in sent[-1]["text"]
+    # both prompts stay open so each can still be answered
+    assert len(ctx.user_data["awaiting_reason_for"]) == 2
+
+
+def test_discard_prompt_forces_a_reply(tmp_path):
+    import asyncio
+    from telegram import ForceReply
+    _stage(tmp_path, "DISCF06")
+    sent = []
+    asyncio.run(telegram_bot.handle_callback(
+        _FakeCallbackUpdate(sent, "discard:DISCF06"), _FakeContext(tmp_path)))
+    assert isinstance(sent[0]["reply_markup"], ForceReply), \
+        "without ForceReply the client gives no way to address one prompt of several"
+
+
+def test_new_link_still_queues_while_a_discard_prompt_is_open(tmp_path):
+    import asyncio
+    import jobs_lib
+    _stage(tmp_path, "DISCG07")
+    jobs_root = tmp_path / "jobs"
+    sent = []
+    ctx = _FakeContext(tmp_path, jobs_root=jobs_root)
+
+    asyncio.run(telegram_bot.handle_callback(_FakeCallbackUpdate(sent, "discard:DISCG07"), ctx))
+    asyncio.run(telegram_bot.handle_message(
+        _FakeUpdate(sent, text="https://www.instagram.com/reel/XYZ9876/"), ctx))
+
+    # an unanswered prompt must not swallow the next link as its reason
+    assert jobs_lib.find_job("XYZ9876", jobs_root)[0] == "queued"
+    assert _discard_log(tmp_path, "DISCG07") == []
+    assert list(ctx.user_data["awaiting_reason_for"].values()) == ["DISCG07"]
+
+
+def test_double_tapping_one_discard_button_asks_once(tmp_path):
+    import asyncio
+    _stage(tmp_path, "DISCH08")
+    sent = []
+    ctx = _FakeContext(tmp_path)
+
+    asyncio.run(telegram_bot.handle_callback(_FakeCallbackUpdate(sent, "discard:DISCH08"), ctx))
+    asyncio.run(telegram_bot.handle_callback(_FakeCallbackUpdate(sent, "discard:DISCH08"), ctx))
+
+    assert len(ctx.user_data["awaiting_reason_for"]) == 1
+    asyncio.run(telegram_bot.handle_message(_FakeUpdate(sent, text="duplicate"), ctx))
+    assert [r["reason"] for r in _discard_log(tmp_path, "DISCH08")] == ["duplicate"]
+
+
+def test_install_results_report_what_a_bare_name_resolved_to():
+    """skill_install can now resolve a name against the skills.sh directory, so
+    the ✅ line has to name the repo that actually ran -- "installed" alone
+    hides which of 73 owners publishing an "impeccable" skill was picked."""
+    import asyncio
+    sent = []
+    query = _FakeCallbackQuery(sent, "approve_all:AAA111")
+    results = [({"id": "a1", "type": "skill_install"},
+                {"ok": True, "note": "Impeccable → pbakaus/impeccable@impeccable (266695 installs, skills.sh)"})]
+    asyncio.run(telegram_bot._report_install_results(query, "AAA111", results))
+    assert "pbakaus/impeccable" in sent[-1]["text"]
+
+
+def _stage_repo(root, shortcode, created, action_type="git_repo"):
+    import staging_lib
+    payload = ({"name": "taste-skill", "url": "https://github.com/leonxlnx/taste-skill"}
+               if action_type == "git_repo" else {"name": "taste"})
+    staging_lib.write_proposal(shortcode, root, {
+        "shortcode": shortcode, "summary": "s", "status": "pending", "created_at": created,
+        "actions": [{"id": "a1", "type": action_type, "risk": "exec", "confidence": 0.9, "status": "pending",
+                     "payload": payload, "evidence": {"repo": "leonxlnx/taste-skill"},
+                     "decided_at": None, "result": None}]})
+
+
+def test_cmd_pending_merges_duplicates_into_one_card(tmp_path):
+    import asyncio
+    _stage_repo(tmp_path, "P1", "2026-01-01")
+    _stage_repo(tmp_path, "P2", "2026-02-01", action_type="skill_install")
+    sent = []
+    asyncio.run(telegram_bot.cmd_pending(_FakeUpdate(sent), _FakeContext(tmp_path)))
+    assert len(sent) == 2
+    assert "suggested in 2 posts" in sent[1]["text"]
+    data = [b.callback_data for row in sent[1]["reply_markup"].inline_keyboard for b in row]
+    assert data == ["act_ok:P2:a1", "act_skip:P2:a1"]
+
+
+def test_approve_installs_once_and_marks_duplicates(tmp_path, monkeypatch):
+    import asyncio
+    import staging_lib
+    _stage_repo(tmp_path, "P1", "2026-01-01")
+    _stage_repo(tmp_path, "P2", "2026-02-01", action_type="skill_install")
+    installed = []
+
+    def fake_install(action, shortcode, staging_root, resolution="install"):
+        installed.append((shortcode, action["id"]))
+        result = {"ok": True, "path": None, "error": None}
+        staging_lib.update_action_status(shortcode, staging_root, action["id"], "installed", result)
+        return result
+    monkeypatch.setattr(telegram_bot.install_artifact, "install_action", fake_install)
+    sent = []
+    query = _FakeQuery(sent, "act_ok:P2:a1")
+    asyncio.run(telegram_bot.handle_callback(type("U", (), {"callback_query": query})(), _FakeContext(tmp_path)))
+    assert installed == [("P2", "a1")]
+    dup = staging_lib.read_proposal("P1", tmp_path)["actions"][0]
+    assert dup["status"] == "skipped" and "duplicate of P2/a1" in dup["result"]["output"]
+
+
+def test_skip_skips_whole_duplicate_group(tmp_path):
+    import asyncio
+    import staging_lib
+    _stage_repo(tmp_path, "P1", "2026-01-01")
+    _stage_repo(tmp_path, "P2", "2026-02-01", action_type="skill_install")
+    sent = []
+    query = _FakeQuery(sent, "act_skip:P2:a1")
+    asyncio.run(telegram_bot.handle_callback(type("U", (), {"callback_query": query})(), _FakeContext(tmp_path)))
+    assert {staging_lib.read_proposal(sc, tmp_path)["actions"][0]["status"] for sc in ("P1", "P2")} == {"skipped"}

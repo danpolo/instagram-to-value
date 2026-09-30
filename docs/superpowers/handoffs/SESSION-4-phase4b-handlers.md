@@ -133,6 +133,35 @@ without a URL — which is exactly what the four `unsupported` rationales say th
 registry lacks. It reports a risk rating per skill ("Med Risk", "0 alerts")
 that is worth surfacing in `preview()`.
 
+**DONE (2026-09-08, commits `bfd579e` + `38ec34e`).** The handler landed first
+with `source` required and schema-pinned to `owner/repo`; Dan then pointed out
+that the `unsupported` bullets were still saying the system cannot install a
+skill *by name*, so `source` became optional and
+`scripts/actions/_skill_directory.py` resolves a bare name against skills.sh.
+
+The design note above assumed a name would be looked up like a package name.
+It cannot be: the directory is thick with forks — an exact-name search for
+`impeccable` matches **73 distinct owners**, `last30days` matches 74 — so
+uniqueness is worthless as a signal. Install counts separate the original from
+the copies by three orders of magnitude, so a name resolves only when one
+`owner/repo` clears 1,000 installs *and* beats the runner-up 10×. That accepts
+Impeccable (266,695 / 263×), Taste (455,836 / 151×), last30days (38,758 /
+1,337×) and CLI-Anything (3,853 / 36×), and refuses Claude Video (13 / 2.2×)
+and Crucible (9 / 1.0×). Unresolved names are refused with their candidates
+listed, never guessed — the action carries exec risk.
+
+Re-interpreting `DbJvV3BpnO6` on the new registry cleared three of the rows in
+the table above at once: both of its `unsupported` entries became name-only
+`skill_install` actions, and its `package_install` force-fit became a
+`skill_install` with an explicit source.
+
+**Follow-up this uncovered:** the corpus already knows sources the directory
+does not. "Claude Video" refuses to resolve on skills.sh, but `Dboal_gxvyh`
+holds `git_repo https://github.com/bradautomates/claude-video` for the same
+skill. A second resolution tier that consults sibling proposals in `staging/`
+before giving up belongs with backlog #4 (`update_existing`), which is already
+the cross-post-identity item.
+
 ### 2. `binary_release` — 4 actions across 4 posts
 
 | Post | Tool |
@@ -187,6 +216,29 @@ This is no longer hypothetical: installing two of them produced
 keep_both/replace — but "keep both" is the wrong answer for the same repo from
 a second post, and nothing upstream proposes "you already have this."
 
+**Second face of the same gap, found 2026-09-08: the corpus knows sources the
+skills.sh directory does not.** `skill_install` can now resolve a bare skill
+name against skills.sh, but it correctly refuses "Claude Video" (13, 6 and 2
+installs across three rival owners — the skill simply is not published there).
+Meanwhile `Dboal_gxvyh` holds, for the same skill,
+`git_repo https://github.com/bradautomates/claude-video`. The identity is
+already in `staging/`; nothing consults it. Same for "Crucible", withheld behind
+a comment-to-receive CTA in `Db_vaVNJSAI`.
+
+So `update_existing` needs a cross-post *identity index* — tool/skill name →
+the source some earlier proposal established — and two consumers, not one:
+
+1. **Dedup** (the original framing): "you already have this."
+2. **Resolution**: a name-only `skill_install` should consult that index before
+   giving up, as a tier below the directory lookup. Directory dominance answers
+   "which owner is the real one" for published skills; the index answers "we
+   have seen this exact skill before, and a sibling post named its repo."
+
+Build the index once and both fall out. Ranking: the index tier should lose to
+an explicit `source` in the payload and win over nothing at all; whether it
+outranks a dominant skills.sh match is a genuine open question — the corpus
+evidence is one post's claim, the directory's is thousands of installs.
+
 ### Force-fitting found (Priority 3)
 
 - **Into `git_repo` / `package_install`: systemic, see §1.** This is the whole
@@ -221,7 +273,35 @@ a second post, and nothing upstream proposes "you already have this."
    The agent ignored the bad evidence here and got AnyDoc right on its own —
    luck, not a guard. **Resolver's true corpus score is 0/42 correct
    resolutions, 1 confident false positive.**
-2. **`package_install` runs with no `cwd=`** — see §1 proof 2.
+2. **`package_install` runs with no `cwd=`** — see §1 proof 2. The handler bug
+   is fixed in `skill_install`, but **two proposals still carry the force-fit
+   payload and must be migrated** (verified 2026-09-08):
+   - `Db9fLwkpvFC` a1, still **pending**:
+     `{manager: "npm", package: "skills", command: "npx skills add nutlope/hallmark"}`.
+     `package` holds the CLI name, not the skill. Approving it today still runs
+     the unpinned-cwd path. It should be
+     `skill_install {name: "hallmark", source: "nutlope/hallmark"}`.
+   - `DboafZtRTgd` a1, already **installed** on 2026-09-02 with
+     `ok: true, exit_code: 0, path: null` — **and the artifact cannot be
+     located.** No `impeccable` under `~/.claude/skills/` or `~/.agents/skills/`.
+     `~/tools/impeccable` and `~/tools/impeccable-2` are the §4 `git_repo`
+     clones, not this install: both are `git status` clean and their
+     `skills-lock.json` / `.veto/skills/…` entries are tracked upstream
+     (164 such paths in `git ls-files`), and the lockfile reads
+     `{"skills": {}}`. So a successful-looking exec install produced no
+     findable artifact, and `path: null` means the record cannot even say where
+     to look. **A green install record in this corpus is not yet evidence that
+     anything installed.**
+
+   Migration: re-interpret both posts on the current registry, the way
+   `DbJvV3BpnO6` was on 2026-09-08 (one agent call converted its force-fit into
+   a proper `skill_install` with an explicit source). The general rule — any
+   `package_install` whose `command` starts with `npx skills add` is a
+   `skill_install` in disguise — catches these two and any future stragglers.
+   Re-verify `DboafZtRTgd` by hand afterwards: re-interpretation resets the
+   action to `pending`, which is the honest state given the artifact is
+   missing, but it does not tell you whether a stray copy is sitting somewhere
+   on disk.
 3. **Captured facts are unattributed.** `reference.install()` writes only the
    bare content paragraph — no title heading, no date, no source shortcode. The
    installed fact cannot be traced back to the post it came from.

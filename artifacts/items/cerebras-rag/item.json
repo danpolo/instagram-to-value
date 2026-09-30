@@ -1,0 +1,31 @@
+{
+  "id": "cerebras-rag",
+  "slug": "cerebras-rag",
+  "title": "Cerebras RAG",
+  "quote": "It never finds my old notes.",
+  "description": "Your notes, searchable by meaning, the way Cerebras built theirs. Free, no API key, one paste.",
+  "url": "https://claude.ai/code/artifact/2b1ebd30-a4e7-4022-8773-b27e1b5dc285",
+  "artifact_uuid": "2b1ebd30-a4e7-4022-8773-b27e1b5dc285",
+  "section": "The artefacts",
+  "section_id": "best",
+  "section_chip": "01",
+  "index": 2,
+  "color": "var(--yellow)",
+  "dark_quote": false,
+  "image_name": "cerebras-rag",
+  "image_url": "https://glitchcatclub.com/lab/img/cerebras-rag.jpg",
+  "content_hash": "9b98efb2a496ed768ce415b51295979d98f11ab79598afe3c66025a324f37a30",
+  "source_page": "https://glitchcatclub.com/lab",
+  "related_reels": [
+    {
+      "shortcode": "DcqtyTStpsw",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260830",
+      "instagram_url": "https://www.instagram.com/p/DcqtyTStpsw/"
+    }
+  ],
+  "first_seen": "2026-09-28T13:11:36.645969+00:00",
+  "last_updated": "2026-09-28T13:11:36.645969+00:00",
+  "local_dir": "artifacts/items/cerebras-rag",
+  "local_image": "artifacts/items/cerebras-rag/image.jpg"
+}

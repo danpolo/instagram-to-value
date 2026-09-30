@@ -64,4 +64,12 @@ htmlcov/
 
 # --- local agent handoffs ---------------------------------------------
 # Operational notes can refer to private paths and work-in-progress context.
-handoffs/
+/handoffs/
+# Preserve the public repository's exclusion of the raw pilot record.
+/docs/superpowers/handoffs/SESSION-3-pilot.md
+
+# --- benchmark gate (Phase B) -----------------------------------------
+# state/ is the live registry the bot and worker share; runs/ are archived
+# agent outputs. bench.md drafts stay tracked.
+state/
+benchmarks/*/runs/

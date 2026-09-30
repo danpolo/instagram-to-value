@@ -245,6 +245,33 @@ def drain_once(jobs_root, media_root, extracted_root, pages_root, staging_root=D
                         staging_root=staging_root, source=job.get("source", "telegram"))
 
 
+BENCHMARK_CHECK_INTERVAL_S = 600
+_last_benchmark_check = {"at": 0.0}
+
+
+def maybe_benchmark(jobs_root, staging_root=DEFAULT_STAGING_ROOT, run_next_fn=None,
+                    min_interval_s=BENCHMARK_CHECK_INTERVAL_S):
+    """Benchmark gate B3: while no ingest job is queued, benchmark at most one
+    due artefact, checking at most every min_interval_s (each check asks
+    QuotaPulse which quota pays). Never raises -- a benchmark problem must not
+    stop the ingest drain."""
+    try:
+        if time.monotonic() - _last_benchmark_check["at"] < min_interval_s or list_queued(jobs_root):
+            return
+        _last_benchmark_check["at"] = time.monotonic()
+        if run_next_fn is None:
+            import benchmark
+            import benchmarks_lib
+            summary = benchmark.run_next(registry_path=benchmarks_lib.path_for(staging_root),
+                                         bench_root=benchmarks_lib.bench_root_for(staging_root))
+        else:
+            summary = run_next_fn()
+        if summary:
+            print(f"[worker] benchmark: {summary}", file=sys.stderr)
+    except Exception as e:
+        print(f"[worker] WARNING: benchmark step failed: {e}", file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--jobs-root", default=str(DEFAULT_JOBS_ROOT))
@@ -263,6 +290,7 @@ def main():
                     staging_root=args.staging_root)
         if args.once:
             return
+        maybe_benchmark(args.jobs_root, args.staging_root)
         time.sleep(args.poll_interval)
 
 

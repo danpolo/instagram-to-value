@@ -1,0 +1,23 @@
+{
+  "id": "fix-your-harness",
+  "slug": "fix-your-harness",
+  "title": "Fix Your Harness",
+  "quote": "A better model didn't fix it.",
+  "description": "What a harness is, why changing it beats a model upgrade, and the parts of Claude Code that make one.",
+  "url": "https://claude.ai/code/artifact/f26ba022-2eb3-44e2-bc1b-914db5e46ef2",
+  "artifact_uuid": "f26ba022-2eb3-44e2-bc1b-914db5e46ef2",
+  "section": "Bonus",
+  "section_id": "more",
+  "section_chip": "02",
+  "index": 10,
+  "color": "var(--gold)",
+  "dark_quote": false,
+  "image_name": null,
+  "image_url": null,
+  "content_hash": "158d33a875d63322356b876643478a98ae7d91553c393e77dea8d5f61a054044",
+  "source_page": "https://glitchcatclub.com/lab",
+  "related_reels": [],
+  "first_seen": "2026-09-28T13:11:36.645969+00:00",
+  "last_updated": "2026-09-28T13:11:36.645969+00:00",
+  "local_dir": "artifacts/items/fix-your-harness"
+}

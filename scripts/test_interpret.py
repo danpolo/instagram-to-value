@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "actions"))
 
 import agents_lib
+import subprocess
 import registry
 import reference
 import note
@@ -18,6 +19,9 @@ import unsupported
 import rule
 import skill as skill_action
 import package_install
+import skill_install
+import _skill_directory
+import _skills_root
 import shell_snippet
 import git_repo
 import calendar_event
@@ -392,6 +396,37 @@ def test_skill_install_writes_frontmatter(tmp_path):
     assert "body text" in written
 
 
+def test_skill_targets_the_canonical_repo_not_an_agent_directory():
+    """Skills are single-sourced in ~/agent-skills/skills and reach
+    ~/.claude/skills only as symlinks `agent-skills sync` maintains, so
+    writing into the agent directory would be unversioned and Claude-only."""
+    assert skill_action.SKILLS_ROOT == Path.home() / "agent-skills" / "skills"
+    target = skill_action.target_path({"name": "Token Saver", "description": "d", "content": "c"})
+    assert target == Path.home() / "agent-skills" / "skills" / "token-saver" / "SKILL.md"
+
+
+def test_skill_install_syncs_a_canonical_target(monkeypatch, tmp_path):
+    """Writing the SKILL.md is half the install -- until sync links it, no
+    agent can see it, so a sync failure must surface as a note."""
+    calls = []
+    monkeypatch.setattr(_skills_root, "sync", lambda: calls.append(1) or "sync broke")
+    monkeypatch.setattr(_skills_root, "SKILLS_ROOT", tmp_path)
+    payload = {"name": "Token Saver", "description": "d", "content": "c"}
+    result = skill_action.install(payload, tmp_path / "token-saver" / "SKILL.md")
+    assert result["ok"] is True and result["note"] == "sync broke"
+    assert calls == [1]
+
+
+def test_skill_install_does_not_sync_a_target_outside_the_repo(monkeypatch, tmp_path):
+    def boom():
+        raise AssertionError("should not sync a target outside the canonical repo")
+
+    monkeypatch.setattr(_skills_root, "sync", boom)
+    result = skill_action.install({"name": "x", "description": "d", "content": "c"},
+                                    tmp_path / "x" / "SKILL.md")
+    assert result["ok"] is True and result["note"] is None
+
+
 def test_skill_collides_false_when_absent(monkeypatch, tmp_path):
     monkeypatch.setattr(skill_action, "SKILLS_ROOT", tmp_path)
     assert skill_action.collides({"name": "new-skill", "description": "d", "content": "c"}) is None
@@ -590,10 +625,11 @@ def test_format_proposal_message_includes_summary_and_actions():
         "actions": [{"id": "a1", "type": "package_install", "risk": "exec",
                        "payload": {"package": "zoxide"}}],
     }
+    proposal["actions"][0].update(status="pending", explanation={"what": "A smarter cd.", "why": "Demoed."})
     text = staging_lib.format_proposal_message(proposal, {"package_install": lambda p: f"install {p['package']}"})
-    assert "zoxide, a smarter cd" in text
-    assert "resolved (zoxide)" in text
-    assert "install zoxide" in text
+    # per post, but each action rendered as the same card /pending uses
+    assert text.splitlines() == ["ABC — zoxide, a smarter cd", "", "🔴 [a1] install zoxide",
+                                 "What: A smarter cd.", "Why: Demoed."]
 
 
 def test_is_auto_discard_eligible_true_for_backfill_high_confidence():
@@ -941,10 +977,39 @@ def test_interpret_post_happy_path_single_agent_call(tmp_path, monkeypatch):
                                              "duration_s": 1.0, "ok": True, "error": None})
 
     proposal = interpret.interpret_post("ABC", media_root, extracted_root, staging_root, tmp_path / "logs")
-    assert proposal["agent_calls"] == 1
+    # triage + the one per-post explanation call for the pending action
+    assert proposal["agent_calls"] == 2
     assert proposal["actions"][0]["type"] == "package_install"
     assert proposal["actions"][0]["risk"] == "exec"
     assert staging_lib.read_proposal("ABC", staging_root) == proposal
+
+
+def test_interpret_post_persists_evidence_for_install_actions(tmp_path, monkeypatch):
+    extracted_root, media_root, staging_root = tmp_path / "e", tmp_path / "m", tmp_path / "s"
+    extracted_root.mkdir()
+    (extracted_root / "ABC.json").write_text(json.dumps({"text": "two UI skills", "media_type": "video"}))
+    (media_root / "ABC").mkdir(parents=True)
+    (media_root / "ABC" / "ABC.info.json").write_text(json.dumps({
+        "description": "", "channel": "c", "duration": 60,
+        "comments": [{"author": "dev", "text": "npx skills add dev/tool-kit"}]}))
+    response = json.dumps({"summary": "s", "unnamed_tool": {"present": False, "description": ""},
+                           "actions": [{"type": "skill_install", "confidence": 0.8,
+                                        "payload": {"name": "tool-kit", "source": "dev/tool-kit"}}]})
+    monkeypatch.setattr(agents_lib, "run_agent",
+                        lambda *a, **kw: {"text": response, "backend": "claude", "model": None,
+                                          "duration_s": 1.0, "ok": True, "error": None})
+    fetchers = {"directory": lambda name, source: {"status": "ok", "listed": False, "source": source,
+                                                   "installs": None, "dominant": False},
+                "github": lambda repo: {"status": "ok", "stars": 3, "contributors": 1, "licence": "MIT",
+                                        "archived": False, "pushed_at": None},
+                "readme": lambda repo: {"status": "ok", "head": "tool kit"}}
+    proposal = interpret.interpret_post("ABC", media_root, extracted_root, staging_root, tmp_path / "logs",
+                                        enrich_fetchers=fetchers)
+    action = staging_lib.read_proposal("ABC", staging_root)["actions"][0]
+    assert action["evidence"]["provenance"]["comment_author"] == "dev"
+    assert action["flags"] == ["not_in_video", "self_promoted_in_comment", "low_adoption", "solo_author",
+                               "not_in_directory"]
+    assert proposal["actions"][0] == action
 
 
 def test_interpret_post_agent_failure_raises_and_writes_error(tmp_path, monkeypatch):
@@ -1046,3 +1111,357 @@ def test_backfill_sweep_sends_one_digest_not_per_post(tmp_path):
                                 notify_fn=sent.append, interpret_post_fn=fake_interpret_post)
     assert len(sent) == 1
     assert "2 proposals" in sent[0]
+
+
+# --- skill_install (Phase 4b, Session 4 backlog item #1) -----------------
+# The pilot found this gap in all three states at once: 4 explicit
+# `unsupported: skill_install`, 3 force-fits into package_install, and 7
+# force-fits into git_repo (SESSION-4-phase4b-handlers.md "Ranked backlog").
+
+def test_skill_install_is_registered_with_exec_risk():
+    assert "skill_install" in registry.HANDLER_MODULE_NAMES
+    assert skill_install.TYPE == "skill_install"
+    # `npx skills add` downloads and executes a third-party CLI -- exec, not config.
+    assert skill_install.RISK == "exec"
+
+
+def test_skill_install_accepts_bare_owner_repo():
+    reg = {}
+    registry.register(skill_install, registry_dict=reg)
+    ok, err = registry.validate_payload(
+        "skill_install", {"name": "impeccable", "source": "pbakaus/impeccable"}, registry_dict=reg)
+    assert ok, err
+
+
+def test_skill_install_rejects_url_and_bare_name_sources():
+    """Backlog proof #3: the force-fit payloads were internally inconsistent --
+    `package: "skills"` (the CLI) in one post, `package: "pbakaus/impeccable"`
+    (the skill) in another. The pattern pins one canonical form so any dedup
+    keyed on `source` matches."""
+    reg = {}
+    registry.register(skill_install, registry_dict=reg)
+    for bad in ["https://github.com/pbakaus/impeccable", "impeccable", "", "owner/repo extra"]:
+        ok, err = registry.validate_payload(
+            "skill_install", {"name": "x", "source": bad}, registry_dict=reg)
+        assert not ok, f"source {bad!r} should be rejected"
+
+
+def test_skill_install_target_path_is_the_canonical_repo():
+    """Backlog proof #2: `npx skills add` installs relative to cwd, and
+    package_install.install() passes no cwd=, so running it from scripts/
+    created scripts/.claude/skills/ inside this repo and still returned ok.
+    The destination is now pinned to the one Git-versioned skill repo."""
+    target = skill_install.target_path({"name": "Impeccable", "source": "pbakaus/impeccable"})
+    assert target.is_absolute()
+    assert target == Path.home() / "agent-skills" / "skills" / "impeccable"
+
+
+def test_skill_install_preview_shows_command_and_destination():
+    payload = {"name": "impeccable", "source": "pbakaus/impeccable"}
+    preview = skill_install.preview(payload)
+    assert "npx --yes skills add pbakaus/impeccable" in preview  # --yes: worker runs non-interactive
+    assert "--copy" in preview  # a symlink into npx's cache can't be committed
+    assert str(skill_install.SKILLS_ROOT) in preview
+    assert "agent-skills sync" in preview
+
+
+def test_skill_install_collides_when_already_installed(tmp_path, monkeypatch):
+    monkeypatch.setattr(skill_install, "SKILLS_ROOT", tmp_path / "skills")
+    payload = {"name": "impeccable", "source": "pbakaus/impeccable"}
+    assert skill_install.collides(payload) is None
+    (tmp_path / "skills" / "impeccable").mkdir(parents=True)
+    assert skill_install.collides(payload) == tmp_path / "skills" / "impeccable"
+
+
+def _fake_add(*names, returncode=0):
+    """Stand-in for `npx skills add --copy --agent claude-code`, which copies
+    each skill in the repo to <cwd>/.claude/skills/<name>/."""
+    def fake_run(cmd, **kwargs):
+        staged = Path(kwargs["cwd"]) / ".claude" / "skills"
+        for name in names:
+            (staged / name).mkdir(parents=True)
+            (staged / name / "SKILL.md").write_text(f"---\nname: {name}\n---\n")
+        return subprocess.CompletedProcess(cmd, returncode, stdout="0 alerts", stderr="")
+    return fake_run
+
+
+def test_skill_install_adopts_into_the_canonical_repo(monkeypatch, tmp_path):
+    """The whole point of the handler: never inherit the worker's cwd, and
+    never leave a third-party skill in an agent-local directory."""
+    seen = {}
+    fake_add = _fake_add("impeccable", "polish")
+
+    def recording_run(cmd, **kwargs):
+        seen["cmd"], seen["cwd"] = cmd, kwargs.get("cwd")
+        return fake_add(cmd, **kwargs)
+
+    monkeypatch.setattr(skill_install.subprocess, "run", recording_run)
+    monkeypatch.setattr(skill_install, "SKILLS_ROOT", tmp_path / "skills")
+    monkeypatch.setattr(_skills_root, "sync", lambda: None)
+    result = skill_install.install({"name": "impeccable", "source": "pbakaus/impeccable"}, target=None)
+
+    assert result["ok"] is True
+    assert Path(seen["cwd"]).is_absolute() and seen["cwd"] != str(Path.cwd())
+    assert seen["cmd"] == ["npx", "--yes", "skills", "add", "pbakaus/impeccable",
+                            "--copy", "--skill", "*", "--agent", "claude-code", "--yes"]
+    # Both skills the repo ships are adopted; the approved name is the path.
+    assert (tmp_path / "skills" / "impeccable" / "SKILL.md").is_file()
+    assert (tmp_path / "skills" / "polish" / "SKILL.md").is_file()
+    assert result["path"] == str(tmp_path / "skills" / "impeccable")
+    assert "impeccable, polish" in result["note"]
+    # The staging directory is a temp dir and does not outlive the install.
+    assert not Path(seen["cwd"]).exists()
+
+
+def test_skill_install_never_overwrites_a_canonical_skill(monkeypatch, tmp_path):
+    """Replacing a skill is the approval flow's decision (Replace/Keep both),
+    not a side effect of installing a repo that happens to ship that name."""
+    monkeypatch.setattr(skill_install.subprocess, "run", _fake_add("impeccable", "polish"))
+    monkeypatch.setattr(skill_install, "SKILLS_ROOT", tmp_path / "skills")
+    monkeypatch.setattr(_skills_root, "sync", lambda: None)
+    (tmp_path / "skills" / "polish").mkdir(parents=True)
+    (tmp_path / "skills" / "polish" / "SKILL.md").write_text("mine")
+
+    result = skill_install.install({"name": "impeccable", "source": "pbakaus/impeccable"}, target=None)
+    assert result["ok"] is True
+    assert (tmp_path / "skills" / "polish" / "SKILL.md").read_text() == "mine"
+    assert "already canonical, left untouched: polish" in result["note"]
+
+
+def test_skill_install_fails_when_exit_zero_leaves_nothing(monkeypatch, tmp_path):
+    """PLAN.md open item #10: a proposal marked installed with path:null and
+    no artifact anywhere on disk. Exit 0 is not evidence of an install."""
+    monkeypatch.setattr(skill_install.subprocess, "run", _fake_add())
+    monkeypatch.setattr(skill_install, "SKILLS_ROOT", tmp_path / "skills")
+    result = skill_install.install({"name": "ghost", "source": "nobody/ghost"}, target=None)
+    assert result["ok"] is False
+    assert result["path"] is None
+    assert "no SKILL.md" in result["error"]
+
+
+def test_skill_install_records_failure(monkeypatch, tmp_path):
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="not found")
+
+    monkeypatch.setattr(skill_install.subprocess, "run", fake_run)
+    monkeypatch.setattr(skill_install, "SKILLS_ROOT", tmp_path / "skills")
+    result = skill_install.install({"name": "nope", "source": "nobody/nope"}, target=None)
+    assert result["ok"] is False
+    assert result["exit_code"] == 1
+    assert "not found" in result["output"]
+
+
+def test_skill_install_appears_in_prompt_catalogue():
+    """Adding a handler must teach the classifier it exists -- no prompt is
+    hand-edited (registry.generate_prompt_catalogue docstring)."""
+    reg = {}
+    registry.register(skill_install, registry_dict=reg)
+    catalogue = registry.generate_prompt_catalogue(registry_dict=reg)
+    assert "`skill_install`" in catalogue
+    assert "source" in catalogue
+
+
+# --- installing a skill by name alone (skills.sh directory) ----------------
+# Four `unsupported: skill_install` rationales said the same thing: "the skill
+# is named, but the post provides no source URL ... and the registry has no
+# action that resolves skill names through a skill directory." skills.sh has
+# such a directory, but it is thick with forks -- a bare exact-name search for
+# "impeccable" matches 73 distinct owners. Install counts separate the original
+# from the copies by three orders of magnitude, so resolution turns on
+# DOMINANCE, not on being the only match. Fixtures below are trimmed real
+# responses from https://skills.sh/api/search.
+
+_IMPECCABLE = {"searchType": "fuzzy", "skills": [
+    {"skillId": "impeccable", "name": "impeccable", "source": "pbakaus/impeccable", "installs": 266695},
+    {"skillId": "polish", "name": "polish", "source": "pbakaus/impeccable", "installs": 87227},
+    {"skillId": "impeccable", "name": "impeccable", "source": "bergside/awesome-design-skills", "installs": 1015},
+    {"skillId": "impeccable", "name": "impeccable", "source": "boraoztunc/skills", "installs": 197},
+]}
+_TASTE = {"searchType": "fuzzy", "skills": [
+    {"skillId": "design-taste-frontend", "name": "design-taste-frontend",
+     "source": "leonxlnx/taste-skill", "installs": 455836},
+    {"skillId": "taste", "name": "taste", "source": "affaan-m/ecc", "installs": 3022},
+    {"skillId": "taste-skill", "name": "taste-skill", "source": "nexu-io/open-design", "installs": 815},
+]}
+_CLAUDE_VIDEO = {"searchType": "fuzzy", "skills": [
+    {"skillId": "claude-video", "name": "claude-video", "source": "agricidaniel/claude-video", "installs": 13},
+    {"skillId": "claude-video", "name": "claude-video", "source": "opheliabm/claude-videoedit", "installs": 6},
+    {"skillId": "claude-video", "name": "claude-video", "source": "zeryamkill/claude-video", "installs": 2},
+]}
+_CRUCIBLE = {"searchType": "fuzzy", "skills": [
+    {"skillId": "crucible", "name": "crucible", "source": "geekkingcloud/skills", "installs": 9},
+    {"skillId": "crucible", "name": "crucible", "source": "ryanelian/crucible-agent-skill", "installs": 8},
+]}
+
+
+def _fixed_search(response):
+    calls = []
+
+    def search(query):
+        calls.append(query)
+        return response
+
+    search.calls = calls
+    return search
+
+
+def test_directory_query_strips_skill_and_version_noise():
+    """Searching the raw caption name loses the skill: skills.sh answers
+    "Taste skill 2.0" with searchType=semantic and unrelated hits, while
+    "taste" fuzzy-matches leonxlnx/taste-skill (455k installs)."""
+    assert _skill_directory.normalize("Taste skill 2.0") == "taste"
+    assert _skill_directory.normalize("last30days-skill") == "last30days"
+    assert _skill_directory.normalize("Impeccable") == "impeccable"
+    assert _skill_directory.normalize("Claude Video") == "claude-video"
+
+
+def test_directory_resolves_a_dominant_exact_match():
+    search = _fixed_search(_IMPECCABLE)
+    result = _skill_directory.resolve("Impeccable", search_fn=search)
+    assert search.calls == ["impeccable"]
+    assert result["status"] == "resolved"
+    assert result["source"] == "pbakaus/impeccable"
+    assert result["skill_id"] == "impeccable"
+    assert result["installs"] == 266695
+
+
+def test_directory_resolves_when_the_repo_not_the_skill_carries_the_name():
+    """The post said "Taste skill 2.0"; the directory calls the skill
+    design-taste-frontend and only the repo is named taste-skill."""
+    result = _skill_directory.resolve("Taste skill 2.0", search_fn=_fixed_search(_TASTE))
+    assert result["status"] == "resolved"
+    assert result["source"] == "leonxlnx/taste-skill"
+
+
+def test_directory_refuses_a_name_no_candidate_dominates():
+    """Three owners publish a claude-video skill with 13, 6 and 2 installs.
+    Nothing here is the thing the post demoed -- guessing would install a
+    stranger's code under an exec-risk action."""
+    result = _skill_directory.resolve("Claude Video", search_fn=_fixed_search(_CLAUDE_VIDEO))
+    assert result["status"] == "uncertain"
+    assert result["source"] is None
+    assert "agricidaniel/claude-video" in " ".join(result["candidates"])
+
+
+def test_directory_refuses_a_tie():
+    result = _skill_directory.resolve("Crucible", search_fn=_fixed_search(_CRUCIBLE))
+    assert result["status"] == "uncertain"
+    assert result["source"] is None
+
+
+def test_directory_ignores_sources_that_are_not_owner_repo():
+    """skills.sh also lists aggregator hosts (smithery.ai, wai-stacks.vercel.app)
+    as a `source`. `npx skills add` cannot take those, and skill_install's
+    schema rejects them, so they must never win the ranking."""
+    response = {"searchType": "fuzzy", "skills": [
+        {"skillId": "widget", "name": "widget", "source": "smithery.ai", "installs": 900000},
+        {"skillId": "widget", "name": "widget", "source": "realowner/widget", "installs": 40000},
+    ]}
+    result = _skill_directory.resolve("widget", search_fn=_fixed_search(response))
+    assert result["status"] == "resolved"
+    assert result["source"] == "realowner/widget"
+
+
+def test_directory_reports_not_found_when_the_name_is_absent():
+    result = _skill_directory.resolve("zzzznotarealskill",
+                                       search_fn=_fixed_search({"searchType": "fuzzy", "skills": []}))
+    assert result["status"] == "not_found"
+    assert result["candidates"] == []
+
+
+def test_directory_survives_a_dead_search():
+    """A directory outage must degrade to "I could not resolve it", never to an
+    exception inside an approval tap."""
+    def boom(query):
+        raise OSError("connection refused")
+
+    result = _skill_directory.resolve("impeccable", search_fn=boom)
+    assert result["status"] == "not_found"
+    assert "connection refused" in (result["error"] or "")
+
+
+def test_skill_install_accepts_a_name_with_no_source():
+    """The whole point: a post that names a skill and gives no URL is now
+    installable, so the classifier stops emitting `unsupported` for it."""
+    reg = {}
+    registry.register(skill_install, registry_dict=reg)
+    ok, err = registry.validate_payload("skill_install", {"name": "Impeccable"}, registry_dict=reg)
+    assert ok, err
+
+
+def test_skill_install_catalogue_advertises_the_name_only_payload():
+    reg = {}
+    registry.register(skill_install, registry_dict=reg)
+    line = registry.generate_prompt_catalogue(registry_dict=reg)
+    # `name` alone is enough; `source?` stays advertised so a post that DOES
+    # link a repo still gets an exact identifier instead of a lookup.
+    assert "payload: {name, source?}" in line
+    assert "skills.sh" in line, "the classifier must be told the directory exists"
+
+
+def test_skill_install_resolves_a_bare_name_before_running_the_cli(monkeypatch, tmp_path):
+    seen = {}
+    fake_add = _fake_add("impeccable")
+
+    def fake_run(cmd, **kwargs):
+        seen["cmd"] = cmd
+        return fake_add(cmd, **kwargs)
+
+    monkeypatch.setattr(skill_install.subprocess, "run", fake_run)
+    monkeypatch.setattr(skill_install, "SKILLS_ROOT", tmp_path / "skills")
+    monkeypatch.setattr(_skills_root, "sync", lambda: None)
+    monkeypatch.setattr(skill_install._skill_directory, "search", lambda query: _IMPECCABLE)
+    result = skill_install.install({"name": "Impeccable"}, target=None)
+    assert result["ok"] is True
+    assert seen["cmd"][:5] == ["npx", "--yes", "skills", "add", "pbakaus/impeccable"]
+    # the approval message must say what the name was resolved to: an exec-risk
+    # install that reports only "installed" hides which stranger's repo ran.
+    assert "pbakaus/impeccable" in result["note"]
+    assert "266695" in result["note"].replace(",", "")
+
+
+def test_skill_install_refuses_to_guess_an_unresolved_name(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        raise AssertionError("must not run the installer for an unresolved name")
+
+    monkeypatch.setattr(skill_install.subprocess, "run", fake_run)
+    monkeypatch.setattr(skill_install._skill_directory, "search", lambda query: _CLAUDE_VIDEO)
+    result = skill_install.install({"name": "Claude Video"}, target=None)
+    assert result["ok"] is False
+    assert "agricidaniel/claude-video" in result["error"]
+
+
+def test_skill_install_prefers_an_explicit_source_over_the_directory(monkeypatch, tmp_path):
+    def no_search(query):
+        raise AssertionError("an explicit source must not be second-guessed")
+
+    monkeypatch.setattr(skill_install._skill_directory, "search", no_search)
+    monkeypatch.setattr(skill_install.subprocess, "run", _fake_add("impeccable"))
+    monkeypatch.setattr(skill_install, "SKILLS_ROOT", tmp_path / "skills")
+    monkeypatch.setattr(_skills_root, "sync", lambda: None)
+    result = skill_install.install({"name": "Impeccable", "source": "pbakaus/impeccable"}, target=None)
+    assert result["ok"] is True
+
+
+def test_skill_install_describe_says_where_a_bare_name_will_come_from():
+    assert "skills.sh" in skill_install.describe({"name": "Impeccable"})
+    assert "pbakaus/impeccable" in skill_install.describe(
+        {"name": "Impeccable", "source": "pbakaus/impeccable"})
+
+
+def test_format_proposal_message_always_shows_the_shortcode():
+    """Found live 2026-09-11: the shortcode was only a *fallback* for a missing
+    summary, so every real proposal rendered without its id. Dan could read
+    `/pending` on his phone but had no way to tell which message was the
+    `DbJvV3BpnO6` referred to in chat, the docs and the logs. It must be at a
+    fixed position — first thing on the first line — so a column of proposals
+    can be scanned without reading each summary to the end."""
+    proposal = {
+        "shortcode": "DbJvV3BpnO6", "summary": "Install the Impeccable and Taste skills",
+        "resolver": {"status": "not_found"},
+        "actions": [{"id": "a1", "type": "skill_install", "risk": "exec",
+                       "payload": {"name": "impeccable"}}],
+    }
+    text = staging_lib.format_proposal_message(proposal, {"skill_install": lambda p: f"install {p['name']}"})
+    assert text.splitlines()[0].startswith("DbJvV3BpnO6")
+    assert "Install the Impeccable and Taste skills" in text

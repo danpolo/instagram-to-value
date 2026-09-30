@@ -1,0 +1,177 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "The Lab · Glitch Cat Club Artefacts",
+  "home_page_url": "https://glitchcatclub.com/lab",
+  "feed_url": "https://glitchcatclub.com/lab/feed.json",
+  "description": "Every free artefact Kem has shared in his Instagram broadcast channel, in one place.",
+  "items": [
+    {
+      "id": "bcbb16d8-f232-4b9d-b3f9-5ceeac85df83",
+      "url": "https://claude.ai/code/artifact/bcbb16d8-f232-4b9d-b3f9-5ceeac85df83",
+      "title": "Graph Engineering · \"My agent says done. It isn't.\"",
+      "summary": "When a job needs a chat, a loop or a graph, and how to add a checker that never saw the work.",
+      "content_text": "Problem: \"My agent says done. It isn't.\"\n\nWhen a job needs a chat, a loop or a graph, and how to add a checker that never saw the work.\n\nLink: https://claude.ai/code/artifact/bcbb16d8-f232-4b9d-b3f9-5ceeac85df83",
+      "tags": [
+        "The artefacts"
+      ],
+      "image": "https://glitchcatclub.com/lab/img/graph-engineering.jpg"
+    },
+    {
+      "id": "2b1ebd30-a4e7-4022-8773-b27e1b5dc285",
+      "url": "https://claude.ai/code/artifact/2b1ebd30-a4e7-4022-8773-b27e1b5dc285",
+      "title": "Cerebras RAG · \"It never finds my old notes.\"",
+      "summary": "Your notes, searchable by meaning, the way Cerebras built theirs. Free, no API key, one paste.",
+      "content_text": "Problem: \"It never finds my old notes.\"\n\nYour notes, searchable by meaning, the way Cerebras built theirs. Free, no API key, one paste.\n\nLink: https://claude.ai/code/artifact/2b1ebd30-a4e7-4022-8773-b27e1b5dc285",
+      "tags": [
+        "The artefacts"
+      ],
+      "image": "https://glitchcatclub.com/lab/img/cerebras-rag.jpg"
+    },
+    {
+      "id": "fa636f77-836a-4dfc-8d85-59ae101efe20",
+      "url": "https://claude.ai/code/artifact/fa636f77-836a-4dfc-8d85-59ae101efe20",
+      "title": "The Astra Swarm · \"My agents can't work as a team.\"",
+      "summary": "12 agents, one shared board, nobody in charge: how they split the work, plus the goal text to run your own.",
+      "content_text": "Problem: \"My agents can't work as a team.\"\n\n12 agents, one shared board, nobody in charge: how they split the work, plus the goal text to run your own.\n\nLink: https://claude.ai/code/artifact/fa636f77-836a-4dfc-8d85-59ae101efe20",
+      "tags": [
+        "The artefacts"
+      ],
+      "image": "https://glitchcatclub.com/lab/img/astra-swarm.jpg"
+    },
+    {
+      "id": "VrYYBTppk5iGcGgkt7PWyK",
+      "url": "https://claude.ai/artifact/VrYYBTppk5iGcGgkt7PWyK",
+      "title": "The Task Router · \"Which model does this even need?\"",
+      "summary": "Your own endpoint sends each prompt to the cheapest model that passes.",
+      "content_text": "Problem: \"Which model does this even need?\"\n\nYour own endpoint sends each prompt to the cheapest model that passes.\n\nLink: https://claude.ai/artifact/VrYYBTppk5iGcGgkt7PWyK",
+      "tags": [
+        "The artefacts"
+      ],
+      "image": "https://glitchcatclub.com/lab/img/task-router.jpg"
+    },
+    {
+      "id": "ef81ca03-1956-4daf-ba3d-3b493e5346d6",
+      "url": "https://claude.ai/code/artifact/ef81ca03-1956-4daf-ba3d-3b493e5346d6",
+      "title": "Loop Lego · \"How do I build an agent system?\"",
+      "summary": "Eighteen named agent loops, each with a picture and a prompt, that snap together into an autonomous system.",
+      "content_text": "Problem: \"How do I build an agent system?\"\n\nEighteen named agent loops, each with a picture and a prompt, that snap together into an autonomous system.\n\nLink: https://claude.ai/code/artifact/ef81ca03-1956-4daf-ba3d-3b493e5346d6",
+      "tags": [
+        "The artefacts"
+      ],
+      "image": "https://glitchcatclub.com/lab/img/loop-lego.jpg"
+    },
+    {
+      "id": "3TXsssDx4SxFWxzVcGJ7wT",
+      "url": "https://claude.ai/artifact/3TXsssDx4SxFWxzVcGJ7wT",
+      "title": "The Semantic Cache · \"I pay for the same answer twice.\"",
+      "summary": "A cache in front of any model that answers a reworded repeat question from your own machine.",
+      "content_text": "Problem: \"I pay for the same answer twice.\"\n\nA cache in front of any model that answers a reworded repeat question from your own machine.\n\nLink: https://claude.ai/artifact/3TXsssDx4SxFWxzVcGJ7wT",
+      "tags": [
+        "The artefacts"
+      ],
+      "image": "https://glitchcatclub.com/lab/img/semantic-cache.jpg"
+    },
+    {
+      "id": "34d3f494-86c2-4ad3-9641-a9ead25a0f84",
+      "url": "https://claude.ai/code/artifact/34d3f494-86c2-4ad3-9641-a9ead25a0f84",
+      "title": "Orchestration · \"My agent loses it on big jobs.\"",
+      "summary": "A coordinator writes each worker a four-line brief and checks every return before it lands.",
+      "content_text": "Problem: \"My agent loses it on big jobs.\"\n\nA coordinator writes each worker a four-line brief and checks every return before it lands.\n\nLink: https://claude.ai/code/artifact/34d3f494-86c2-4ad3-9641-a9ead25a0f84",
+      "tags": [
+        "The artefacts"
+      ],
+      "image": "https://glitchcatclub.com/lab/img/orchestration.jpg"
+    },
+    {
+      "id": "3eecd07a-0efa-4e24-8813-875bed368116",
+      "url": "https://claude.ai/code/artifact/3eecd07a-0efa-4e24-8813-875bed368116",
+      "title": "Machine Anywhere · \"My setup only works at my desk.\"",
+      "summary": "Reach your own computer from your phone: a private network, the login it already has, a session that survives.",
+      "content_text": "Problem: \"My setup only works at my desk.\"\n\nReach your own computer from your phone: a private network, the login it already has, a session that survives.\n\nLink: https://claude.ai/code/artifact/3eecd07a-0efa-4e24-8813-875bed368116",
+      "tags": [
+        "The artefacts"
+      ],
+      "image": "https://glitchcatclub.com/lab/img/machine-anywhere.jpg"
+    },
+    {
+      "id": "51e3aebb-af8d-4aac-970f-dd809adca7ca",
+      "url": "https://claude.ai/code/artifact/51e3aebb-af8d-4aac-970f-dd809adca7ca",
+      "title": "The Trifecta · \"Where do I even start?\"",
+      "summary": "The three foundations: what AI is, how to prompt it, and how to manage its context.",
+      "content_text": "Problem: \"Where do I even start?\"\n\nThe three foundations: what AI is, how to prompt it, and how to manage its context.\n\nLink: https://claude.ai/code/artifact/51e3aebb-af8d-4aac-970f-dd809adca7ca",
+      "tags": [
+        "Bonus"
+      ]
+    },
+    {
+      "id": "f26ba022-2eb3-44e2-bc1b-914db5e46ef2",
+      "url": "https://claude.ai/code/artifact/f26ba022-2eb3-44e2-bc1b-914db5e46ef2",
+      "title": "Fix Your Harness · \"A better model didn't fix it.\"",
+      "summary": "What a harness is, why changing it beats a model upgrade, and the parts of Claude Code that make one.",
+      "content_text": "Problem: \"A better model didn't fix it.\"\n\nWhat a harness is, why changing it beats a model upgrade, and the parts of Claude Code that make one.\n\nLink: https://claude.ai/code/artifact/f26ba022-2eb3-44e2-bc1b-914db5e46ef2",
+      "tags": [
+        "Bonus"
+      ]
+    },
+    {
+      "id": "480e7a25-ad53-4dd3-a240-8dd8a7f781db",
+      "url": "https://claude.ai/code/artifact/480e7a25-ad53-4dd3-a240-8dd8a7f781db",
+      "title": "Three Habits · \"My vibe-coded app keeps breaking.\"",
+      "summary": "Tests first, reuse before rebuild, and have the agent draw the process.",
+      "content_text": "Problem: \"My vibe-coded app keeps breaking.\"\n\nTests first, reuse before rebuild, and have the agent draw the process.\n\nLink: https://claude.ai/code/artifact/480e7a25-ad53-4dd3-a240-8dd8a7f781db",
+      "tags": [
+        "Bonus"
+      ]
+    },
+    {
+      "id": "89b75ded-bced-4e34-9f24-b4e78cac1783",
+      "url": "https://claude.ai/code/artifact/89b75ded-bced-4e34-9f24-b4e78cac1783",
+      "title": "The Team Board · \"Subagents or a team?\"",
+      "summary": "Claude Code agent teams, the shared task board, and when a teammate beats a subagent.",
+      "content_text": "Problem: \"Subagents or a team?\"\n\nClaude Code agent teams, the shared task board, and when a teammate beats a subagent.\n\nLink: https://claude.ai/code/artifact/89b75ded-bced-4e34-9f24-b4e78cac1783",
+      "tags": [
+        "Bonus"
+      ]
+    },
+    {
+      "id": "7e14d97c-7d12-421e-ad68-1f1f4c22b954",
+      "url": "https://claude.ai/code/artifact/7e14d97c-7d12-421e-ad68-1f1f4c22b954",
+      "title": "STE, Tested · \"Does how I write prompts matter?\"",
+      "summary": "A controlled test of STE-style prompting against the alternatives.",
+      "content_text": "Problem: \"Does how I write prompts matter?\"\n\nA controlled test of STE-style prompting against the alternatives.\n\nLink: https://claude.ai/code/artifact/7e14d97c-7d12-421e-ad68-1f1f4c22b954",
+      "tags": [
+        "Bonus"
+      ]
+    },
+    {
+      "id": "d5c7e5ff-aca7-4228-ab24-37524d517f1c",
+      "url": "https://claude.ai/code/artifact/d5c7e5ff-aca7-4228-ab24-37524d517f1c",
+      "title": "The Receiver Decides · \"Can my agent be talked into things?\"",
+      "summary": "Lessons from the Mind Viruses paper and the OpenAI and Hugging Face incident report: who gets to be believed in your context.",
+      "content_text": "Problem: \"Can my agent be talked into things?\"\n\nLessons from the Mind Viruses paper and the OpenAI and Hugging Face incident report: who gets to be believed in your context.\n\nLink: https://claude.ai/code/artifact/d5c7e5ff-aca7-4228-ab24-37524d517f1c",
+      "tags": [
+        "Bonus"
+      ]
+    },
+    {
+      "id": "b35ae815-e493-415b-b7b9-e063aac46da9",
+      "url": "https://claude.ai/code/artifact/b35ae815-e493-415b-b7b9-e063aac46da9",
+      "title": "For Research Purposes Only · \"Can my agent read social media?\"",
+      "summary": "Driving your own agent to read the platforms for research, what the terms say, and why you never scale it.",
+      "content_text": "Problem: \"Can my agent read social media?\"\n\nDriving your own agent to read the platforms for research, what the terms say, and why you never scale it.\n\nLink: https://claude.ai/code/artifact/b35ae815-e493-415b-b7b9-e063aac46da9",
+      "tags": [
+        "Bonus"
+      ]
+    },
+    {
+      "id": "2cca0cad-433d-442a-938c-5b6fb3148af4",
+      "url": "https://claude.ai/code/artifact/2cca0cad-433d-442a-938c-5b6fb3148af4",
+      "title": "Your Own Design System · \"Why do my reels all look different?\"",
+      "summary": "The design system I use for reels: tokens, five looks and the renderer, ready to make your own.",
+      "content_text": "Problem: \"Why do my reels all look different?\"\n\nThe design system I use for reels: tokens, five looks and the renderer, ready to make your own.\n\nLink: https://claude.ai/code/artifact/2cca0cad-433d-442a-938c-5b6fb3148af4",
+      "tags": [
+        "Bonus"
+      ]
+    }
+  ]
+}

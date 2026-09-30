@@ -1,0 +1,23 @@
+{
+  "id": "for-research-purposes-only",
+  "slug": "for-research-purposes-only",
+  "title": "For Research Purposes Only",
+  "quote": "Can my agent read social media?",
+  "description": "Driving your own agent to read the platforms for research, what the terms say, and why you never scale it.",
+  "url": "https://claude.ai/code/artifact/b35ae815-e493-415b-b7b9-e063aac46da9",
+  "artifact_uuid": "b35ae815-e493-415b-b7b9-e063aac46da9",
+  "section": "Bonus",
+  "section_id": "more",
+  "section_chip": "02",
+  "index": 15,
+  "color": "var(--gold)",
+  "dark_quote": false,
+  "image_name": null,
+  "image_url": null,
+  "content_hash": "036e9556fcd74a20c7fc11b3a9ee7d2e9a9f7689c645d00d52b92a8eb125f015",
+  "source_page": "https://glitchcatclub.com/lab",
+  "related_reels": [],
+  "first_seen": "2026-09-28T13:11:36.645969+00:00",
+  "last_updated": "2026-09-28T13:11:36.645969+00:00",
+  "local_dir": "artifacts/items/for-research-purposes-only"
+}

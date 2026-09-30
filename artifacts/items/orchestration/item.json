@@ -1,0 +1,37 @@
+{
+  "id": "orchestration",
+  "slug": "orchestration",
+  "title": "Orchestration",
+  "quote": "My agent loses it on big jobs.",
+  "description": "A coordinator writes each worker a four-line brief and checks every return before it lands.",
+  "url": "https://claude.ai/code/artifact/34d3f494-86c2-4ad3-9641-a9ead25a0f84",
+  "artifact_uuid": "34d3f494-86c2-4ad3-9641-a9ead25a0f84",
+  "section": "The artefacts",
+  "section_id": "best",
+  "section_chip": "01",
+  "index": 7,
+  "color": "var(--yellow)",
+  "dark_quote": false,
+  "image_name": "orchestration",
+  "image_url": "https://glitchcatclub.com/lab/img/orchestration.jpg",
+  "content_hash": "525144f66e696115521b0d640a5fb9784c17aa53f1fe474579f86ce2baa9d7d0",
+  "source_page": "https://glitchcatclub.com/lab",
+  "related_reels": [
+    {
+      "shortcode": "DcimG9JtYGp",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260827",
+      "instagram_url": "https://www.instagram.com/p/DcimG9JtYGp/"
+    },
+    {
+      "shortcode": "DcOCgBkNNjK",
+      "title": "Video by kem_glitch",
+      "upload_date": "20260819",
+      "instagram_url": "https://www.instagram.com/p/DcOCgBkNNjK/"
+    }
+  ],
+  "first_seen": "2026-09-28T13:11:36.645969+00:00",
+  "last_updated": "2026-09-28T13:11:36.645969+00:00",
+  "local_dir": "artifacts/items/orchestration",
+  "local_image": "artifacts/items/orchestration/image.jpg"
+}

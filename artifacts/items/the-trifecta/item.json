@@ -1,0 +1,23 @@
+{
+  "id": "the-trifecta",
+  "slug": "the-trifecta",
+  "title": "The Trifecta",
+  "quote": "Where do I even start?",
+  "description": "The three foundations: what AI is, how to prompt it, and how to manage its context.",
+  "url": "https://claude.ai/code/artifact/51e3aebb-af8d-4aac-970f-dd809adca7ca",
+  "artifact_uuid": "51e3aebb-af8d-4aac-970f-dd809adca7ca",
+  "section": "Bonus",
+  "section_id": "more",
+  "section_chip": "02",
+  "index": 9,
+  "color": "var(--mint)",
+  "dark_quote": false,
+  "image_name": null,
+  "image_url": null,
+  "content_hash": "86504967c257323ca6a7164bf1d3c391f9836d8d45c59aec4f06c167a79883c1",
+  "source_page": "https://glitchcatclub.com/lab",
+  "related_reels": [],
+  "first_seen": "2026-09-28T13:11:36.645969+00:00",
+  "last_updated": "2026-09-28T13:11:36.645969+00:00",
+  "local_dir": "artifacts/items/the-trifecta"
+}

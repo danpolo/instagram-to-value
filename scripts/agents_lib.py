@@ -71,20 +71,46 @@ def set_backend(name, config_path=DEFAULT_CONFIG_PATH, model=None):
     config_path.write_text(json.dumps({"backend": name, "model": existing_model}, indent=2))
 
 
-def build_cmd(backend, prompt, *, schema_path=None, allow_search=False, model=None, output_path=None):
+def build_cmd(backend, prompt, *, schema_path=None, allow_search=False, model=None, output_path=None,
+              effort=None, workdir=None, timeout=None):
     """Pure: the CLI invocation for one backend. No subprocess runs here --
     unit-testable without executing anything. `prompt` isn't embedded in the
-    argv (both CLIs read it from stdin) -- avoids ARG_MAX and shell-quoting
-    the multi-KB prompts this stage sends."""
+    argv for claude/codex (both read it from stdin) -- avoids ARG_MAX and
+    shell-quoting the multi-KB prompts this stage sends. agy takes it as the
+    last argument. `workdir` lets the agent write files there and nowhere else
+    (the benchmark gate's throwaway task directories); without it every
+    backend stays read-only."""
     if backend == "claude":
         cmd = ["claude", "-p", "--output-format", "json", "--restricted"]
         if allow_search:
             cmd += ["--allowed-tools", "WebSearch"]
         if model:
             cmd += ["--model", model]
+        if effort:
+            cmd += ["--effort", effort]
+        if workdir:
+            cmd += ["--permission-mode", "acceptEdits"]
         return cmd
+    if backend == "agy":
+        # agy ignores its cwd as a workspace (a file asked for "here" landed in
+        # ~/.gemini/antigravity-cli/scratch), so the directory is added explicitly.
+        cmd = ["agy", "--output-format", "json"]
+        if model:
+            cmd += ["--model", model]
+        if effort:
+            cmd += ["--effort", effort]
+        if workdir:
+            cmd += ["--add-dir", str(workdir), "--mode", "accept-edits"]
+        if timeout:
+            cmd += ["--print-timeout", f"{int(timeout)}s"]
+        # -p takes the prompt as its value, so the two must stay adjacent.
+        return cmd + ["-p", prompt]
     if backend == "codex":
-        cmd = ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check"]
+        cmd = ["codex", "exec", "--sandbox", "workspace-write" if workdir else "read-only", "--skip-git-repo-check"]
+        if workdir:
+            cmd += ["-C", str(workdir)]
+        if effort:
+            cmd += ["-c", f"model_reasoning_effort={effort}"]
         if allow_search:
             cmd += ["--search"]
         if schema_path:
@@ -128,7 +154,26 @@ def extract_json(text):
     raise ValueError(f"no valid JSON object found in text: {text[:200]!r}")
 
 
-def run_agent(prompt, backend=None, model=None, allow_search=False, schema=None, timeout=300):
+def parse_output(backend, stdout):
+    """Pure: (text, error) from a successful process's stdout. claude and agy
+    wrap the reply in a JSON envelope; agy also reports its own status."""
+    if backend not in ("claude", "agy"):
+        return stdout, None
+    try:
+        envelope = json.loads(stdout)
+    except json.JSONDecodeError:
+        return stdout, None  # some claude -p output isn't the JSON envelope; use raw stdout
+    if not isinstance(envelope, dict):
+        return stdout, None
+    if backend == "agy":
+        if envelope.get("status") != "SUCCESS":
+            return envelope.get("response") or "", f"agy status {envelope.get('status')}"
+        return envelope.get("response") or "", None
+    return envelope.get("result", stdout), None
+
+
+def run_agent(prompt, backend=None, model=None, allow_search=False, schema=None, timeout=300,
+              effort=None, workdir=None):
     """The only impure function. Shells out to the chosen backend's headless
     CLI, prompt via stdin. Never raises on a subprocess failure -- returns
     {text, backend, model, duration_s, ok, error} and lets the caller decide
@@ -149,9 +194,11 @@ def run_agent(prompt, backend=None, model=None, allow_search=False, schema=None,
             output_path = tmp_dir / "output.txt"
 
         cmd = build_cmd(backend, prompt, schema_path=schema_path, allow_search=allow_search,
-                         model=model, output_path=output_path)
+                         model=model, output_path=output_path, effort=effort, workdir=workdir, timeout=timeout)
+        stdin = {"stdin": subprocess.DEVNULL} if backend == "agy" else {"input": prompt}
         try:
-            result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=timeout)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 30,
+                                    cwd=str(workdir) if workdir else None, **stdin)
         except subprocess.TimeoutExpired:
             return {"text": "", "backend": backend, "model": model,
                     "duration_s": time.monotonic() - start, "ok": False,
@@ -164,18 +211,12 @@ def run_agent(prompt, backend=None, model=None, allow_search=False, schema=None,
                     "error": result.stderr[-2000:] or f"exit {result.returncode}"}
 
         if backend == "codex" and output_path is not None and output_path.exists():
-            text = output_path.read_text()
-        elif backend == "claude":
-            try:
-                envelope = json.loads(result.stdout)
-                text = envelope.get("result", result.stdout)
-            except json.JSONDecodeError:
-                text = result.stdout  # some claude -p output isn't the JSON envelope; use raw stdout
+            text, error = output_path.read_text(), None
         else:
-            text = result.stdout
+            text, error = parse_output(backend, result.stdout)
 
         return {"text": text, "backend": backend, "model": model,
-                "duration_s": duration, "ok": True, "error": None}
+                "duration_s": duration, "ok": error is None, "error": error}
     finally:
         if tmp_dir is not None:
             shutil.rmtree(tmp_dir, ignore_errors=True)

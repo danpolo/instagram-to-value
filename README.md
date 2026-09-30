@@ -65,6 +65,10 @@ Downloaded media, extracted content, queue and staging state, logs, cookies, and
 
 ## Development
 
+The latest verified implementation and remaining work are recorded in
+[Current working state](docs/WORKING_STATE.md). This includes proposal provenance,
+skill installation, the benchmark gate, and the [Lab artifact catalog](artifacts/INDEX.md).
+
 Continuous integration runs the same `pytest -q` command on pushes and pull requests. The codebase is intentionally organized as small scripts with explicit filesystem contracts, keeping the pipeline inspectable without a framework or database layer.
 
 Licensed under the [MIT License](LICENSE).
